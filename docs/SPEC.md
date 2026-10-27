@@ -68,7 +68,10 @@ Install in a sealed enclosure with cable glands and a Micro-C drop cable, and co
 ### 5.1 Build configuration
 - `platform = espressif32 @ 6.8.1`.
 - Pin library versions: NMEA2000 (tag or commit), NMEA0183 `1.10.1`, FastLED `3.6.0`.
+  - *Done 2026-10-27:* NMEA2000 pinned to registry release `4.24.1` (4.25.1, published 2026-10-19, was too new to adopt).
 - Remove the `NMEA2000_esp32` dependency.
+  - *Deferred to §5.3:* the current `main.cpp` still gets its CAN object through `NMEA2000_CAN.h`, so `NMEA2000_esp32` stays, pinned to commit `15cc308`, until the driver switch.
+  - *Open before §5.3:* the NMEA2000 maintainer declined to support this library ("does not use properly my library", [NMEA2000_esp32 #25](https://github.com/ttlappalainen/NMEA2000_esp32/issues/25), 2024-05-22) without saying why. Review how it subclasses `tNMEA2000` before switching.
 - Vendor `NMEA2000_esp32_twai` into `lib/NMEA2000_esp32_twai/`, from upstream commit `75fd20b` (2023-04-25). It is used **unmodified**. Include its licence text and a `SOURCE.md` recording the URL and the commit, and stating that there are no local changes.
 - Keep the default partition table (two OTA app slots), and state it explicitly with `board_build.partitions = default.csv`.
 
@@ -222,7 +225,7 @@ Testing happens on the boat during a trial period; there is no separate bench se
 **Tests:**
 - [ ] `pio run` builds with the pinned versions and no warnings in new code.
 - [ ] The WatchMate feeds the gateway, and AIS targets appear on the plotter **with names and vessel details** within 6 minutes.
-- [ ] **Conversion test vectors (§5.4.1):** a set of real `!AIVDM` sentences covering types 1–3, 5, 14, 18, 19, 24A/B — including targets with SOG, position, rate of turn and ETA not available — taken from the WatchMate's raw-sentence buffer or a public AIS sample set (not hand-written, so checksums and multi-part framing are real). Each is sent into the gateway, the output captured from the bus (`candump` on the Pi, decoded with canboat's `analyzer`), and every field compared with the decoded AIS value. Not-available inputs must decode as "Unknown"/NA, never as a number.
+- [ ] **Conversion test vectors (§5.4.1):** *(host side done 2026-10-27: `pio test -e native`, 24 tests, real sentences from gpsd and pyais samples; the on-bus `candump`/`analyzer` check below remains for the trial)* a set of real `!AIVDM` sentences covering types 1–3, 5, 14, 18, 19, 24A/B — including targets with SOG, position, rate of turn and ETA not available — taken from the WatchMate's raw-sentence buffer or a public AIS sample set (not hand-written, so checksums and multi-part framing are real). Each is sent into the gateway, the output captured from the bus (`candump` on the Pi, decoded with canboat's `analyzer`), and every field compared with the decoded AIS value. Not-available inputs must decode as "Unknown"/NA, never as a number.
 - [ ] A device list or diagnostic tool shows the gateway transmitting the AIS PGNs.
 - [ ] CAN recovery is **not** forced; there is no fault injection on the live bus. During the trial, the bus-off and recovery counters are monitored. If a bus-off happens naturally, the log shows whether the gateway recovered.
 - [ ] Unplugging the RS485 input: the LED shows "no AIS" after 5 minutes. Reconnecting resumes bridging.

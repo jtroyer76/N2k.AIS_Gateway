@@ -57,7 +57,9 @@ tNMEA0183 NMEA0183;
 int NodeAddress;         // To store last Node Address
 Preferences preferences; // Nonvolatile storage on ESP32 - To store LastDeviceAddress
 
-MyAisDecoder decoder;              // Create decoder object
+MyAisDecoder decoder(              // Create decoder object
+    [](const tN2kMsg &N2kMsg) { NMEA2000.SendMsg(N2kMsg); },
+    [](const char *line) { Serial.println(line); });
 AIS::DefaultSentenceParser parser; // Create parser object
 
 void MyHandleNMEA2000Msg(const tN2kMsg &N2kMsg);
@@ -140,8 +142,10 @@ void HandleSytemTime(const tN2kMsg &N2kMsg)
   unsigned char SID;
   tN2kTimeSource TimeSource;
   double SecondsSinceMidnight = 0;
+  uint16_t DaysSince1970;
 
-  ParseN2kSystemTime(N2kMsg, SID, DaysSince1970, SecondsSinceMidnight, TimeSource);
+  if (ParseN2kSystemTime(N2kMsg, SID, DaysSince1970, SecondsSinceMidnight, TimeSource))
+    decoder.setDaysSince1970(DaysSince1970); // For the AIS type 5 ETA year
 }
 
 //*****************************************************************************
@@ -163,10 +167,12 @@ void HandleGNSS(const tN2kMsg &N2kMsg)
   uint16_t ReferenceSationID;
   double AgeOfCorrection;
   double SecondsSinceMidnight = 0;
+  uint16_t DaysSince1970;
 
-  ParseN2kGNSS(N2kMsg, SID, DaysSince1970, SecondsSinceMidnight, Latitude, Longitude, Altitude,
-               GNSStype, GNSSmethod, nSatellites, HDOP, PDOP, GeoidalSeparation,
-               nReferenceStations, ReferenceStationType, ReferenceSationID, AgeOfCorrection);
+  if (ParseN2kGNSS(N2kMsg, SID, DaysSince1970, SecondsSinceMidnight, Latitude, Longitude, Altitude,
+                   GNSStype, GNSSmethod, nSatellites, HDOP, PDOP, GeoidalSeparation,
+                   nReferenceStations, ReferenceStationType, ReferenceSationID, AgeOfCorrection))
+    decoder.setDaysSince1970(DaysSince1970); // For the AIS type 5 ETA year
 }
 
 //*****************************************************************************

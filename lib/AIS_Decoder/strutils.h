@@ -265,10 +265,13 @@ namespace AIS
     {
         if (_str.size() > 0)
         {
-            const char *pNext = (const char *)memrchr(_str.data(), _ch, _str.size());
-            if (pNext != nullptr)
+            // portable reverse search (memrchr is a GNU extension, missing on Windows hosts)
+            for (size_t i = _str.size(); i-- > 0;)
             {
-                return pNext - _str.data();
+                if (_str.data()[i] == _ch)
+                {
+                    return i;
+                }
             }
         }
         

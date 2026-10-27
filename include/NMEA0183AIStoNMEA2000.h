@@ -11,30 +11,60 @@
   License along with this library; if not, write to the Free Software
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
-#include <Arduino.h>
+#include <functional>
+#include <string.h>
 #include <N2kMessages.h>
 #include "ais_decoder.h"
 #include "default_sentence_parser.h"
+#include "AisDate.h"
 
 const double pi = 3.1415926535897932384626433832795;
 const double knToms = 1852.0 / 3600.0;
 const double degToRad = pi / 180.0;
 const double nmTom = 1.852 * 1000;
 
-uint16_t DaysSince1970 = 0;
-
 class MyAisDecoder : public AIS::AisDecoder
 {
   public:
-    MyAisDecoder()
+    using SendFn = std::function<void(const tN2kMsg &)>;
+    using LogFn = std::function<void(const char *)>;
+
+    // The converter builds N2k messages and hands them to send(); it never talks to the bus itself.
+    // minValidDay: dates earlier than this are rejected by setDaysSince1970(); defaults to the
+    // firmware build date.
+    explicit MyAisDecoder(SendFn send, LogFn log = nullptr,
+                          uint16_t minValidDay = (uint16_t)AisDate::buildDateDays(__DATE__))
+      : _send(std::move(send)), _log(std::move(log)), _minValidDay(minValidDay)
     {}
 
+    // Today's date (days since 1970) from PGN 126992 / 129029, used for the type 5 ETA year.
+    // Dates before the firmware build are rejected: the old SeaTalk GPS reports 2007 (GPS week
+    // rollover) through the SeaTalk -> N2k converter, and 1970 is the default before any time
+    // message. A rejected date keeps the last accepted one. Returns true if accepted.
+    bool setDaysSince1970(uint16_t days) {
+      if (days == N2kUInt16NA || days < _minValidDay) return false;
+      _today = days;
+      return true;
+    }
+
+  private:
+    SendFn _send;
+    LogFn _log;
+    uint16_t _minValidDay;
+    uint16_t _today = N2kUInt16NA;  // no accepted date yet
+
+    void send(const tN2kMsg &N2kMsg) { if (_send) _send(N2kMsg); }
+
   protected:
+
+    // AIS "not available" values must become NA before any scaling: the NMEA2000 library writes
+    // a scaled NA as "out of range", which receivers show as a number (SPEC 5.4.1).
 
     double decodeRot(int iRot) {
       //see https://gpsd.gitlab.io/gpsd/AIVDM.html#_type_5_static_and_voyage_related_data
       //and https://opencpn.org/wiki/dokuwiki/doku.php?id=opencpn:supplementary_software:nmea2000
-      double rot = N2kDoubleNA;
+      if (iRot < -127 || iRot > 127) return N2kDoubleNA;  // -128 = not available
+      double rot = 0;
       if (iRot == 127) rot = 10;
       else if (iRot == -127) rot = -10;
       else if (iRot == 0) rot = 0;
@@ -58,6 +88,47 @@ class MyAisDecoder : public AIS::AisDecoder
       }
       return heading;
     }
+    double decodeSog(unsigned int uSog) {  // 1/10 kn; 1023 = not available
+      return uSog == 1023 ? N2kDoubleNA : uSog * knToms / 10.0;
+    }
+    double decodeLon(long iLon) {  // 1/10000 min; 181 deg = not available
+      return iLon == 181L * 600000 ? N2kDoubleNA : iLon / 600000.0;
+    }
+    double decodeLat(long iLat) {  // 1/10000 min; 91 deg = not available
+      return iLat == 91L * 600000 ? N2kDoubleNA : iLat / 600000.0;
+    }
+    double decodeDraught(unsigned int uDraught) {  // 1/10 m; 0 = not available
+      return uDraught == 0 ? N2kDoubleNA : uDraught / 10.0;
+    }
+    double decodeEtaTime(unsigned int uHour, unsigned int uMinute) {  // hour 24 / minute 60 = not available
+      return (uHour >= 24 || uMinute >= 60) ? N2kDoubleNA : uHour * 3600.0 + uMinute * 60.0;
+    }
+    // ETA month/day carry no year: use the next occurrence relative to today.
+    uint16_t decodeEtaDate(unsigned int uMonth, unsigned int uDay) {  // month/day 0 = not available
+      if (_today == N2kUInt16NA || uMonth == 0 || uDay == 0) return N2kUInt16NA;
+      return AisDate::nextOccurrence(_today, uMonth, uDay);
+    }
+
+    // Channel the message was received on, from the first sentence's channel field
+    // (!AIVDM,count,num,seqid,channel,...). 'B' or '2' is channel B; anything else defaults to A.
+    tN2kAISTransceiverInformation receptionChannel() const {
+      const std::vector<AIS::StringRef> &lines = sentences();
+      if (lines.empty()) return N2kaischannel_A_VDL_reception;
+      const AIS::StringRef &line = lines.front();
+      int field = 0;
+      for (size_t i = 0; i + 1 < line.size(); i++) {
+        if (line.data()[i] == ',' && ++field == 4) {
+          char ch = line.data()[i + 1];
+          return (ch == 'B' || ch == '2') ? N2kaischannel_B_VDL_reception : N2kaischannel_A_VDL_reception;
+        }
+      }
+      return N2kaischannel_A_VDL_reception;
+    }
+
+    // Auxiliary craft associated with a parent ship have MMSI 98xxxxxxx.
+    static bool isAuxiliaryCraft(unsigned int uMmsi) {
+      return uMmsi >= 980000000 && uMmsi <= 989999999;
+    }
 
     virtual void onType123(unsigned int _uMsgType, unsigned int _uMmsi, unsigned int _uNavstatus,
                            int _iRot, unsigned int _uSog, bool _bPosAccuracy,
@@ -69,33 +140,13 @@ class MyAisDecoder : public AIS::AisDecoder
       tN2kMsg N2kMsg;
 
       // PGN129038
-      /*
-        SetN2kAISClassAPosition(N2kMsg, _uMsgType, (tN2kAISRepeat)_Repeat, _uMmsi,
-                              _iPosLat / 600000.0, _iPosLon / 600000.0,
+      SetN2kAISClassAPosition(N2kMsg, _uMsgType, (tN2kAISRepeat)_Repeat, _uMmsi,
+                              decodeLat(_iPosLat), decodeLon(_iPosLon),
                               _bPosAccuracy, _Raim, _timestamp,
-                              decodeCog(_iCog), _uSog * knToms / 10.0,
+                              decodeCog(_iCog), decodeSog(_uSog), receptionChannel(),
                               decodeHeading(_iHeading), decodeRot(_iRot), (tN2kAISNavStatus)_uNavstatus);
-      */
 
-      N2kMsg.SetPGN(129038L);
-      N2kMsg.Priority = 4;
-      N2kMsg.AddByte((_Repeat & 0x03) << 6 | (_uMsgType & 0x3f));
-      N2kMsg.Add4ByteUInt(_uMmsi);
-      N2kMsg.Add4ByteDouble(_iPosLon / 600000.0, 1e-07);
-      N2kMsg.Add4ByteDouble(_iPosLat / 600000.0, 1e-07);
-      N2kMsg.AddByte((_timestamp & 0x3f) << 2 | (_Raim & 0x01) << 1 | (_bPosAccuracy & 0x01));
-      N2kMsg.Add2ByteUDouble(decodeCog(_iCog), 1e-04);
-      N2kMsg.Add2ByteUDouble(_uSog * knToms / 10.0, 0.01);
-      N2kMsg.AddByte(0x00); // Communication State (19 bits)
-      N2kMsg.AddByte(0x00);
-      N2kMsg.AddByte(0x00); // AIS transceiver information (5 bits)
-      N2kMsg.Add2ByteUDouble(decodeHeading(_iHeading), 1e-04);
-      N2kMsg.Add2ByteDouble(decodeRot(_iRot), 3.125E-05); // 1e-3/32.0
-      N2kMsg.AddByte(0xF0 | (_uNavstatus & 0x0f));
-      N2kMsg.AddByte(0xff); // Reserved
-      N2kMsg.AddByte(0xff); // SID (NA)
-
-      NMEA2000.SendMsg(N2kMsg);
+      send(N2kMsg);
     }
 
     virtual void onType411(unsigned int , unsigned int , unsigned int , unsigned int , unsigned int , unsigned int , unsigned int , unsigned int , bool , int , int ) override {
@@ -112,22 +163,6 @@ class MyAisDecoder : public AIS::AisDecoder
                          unsigned int _repeat, bool _dte) override {
 
       // Serial.println("5");
-
-      // Necessary due to conflict with TimeLib.h (redefinition of tmElements_t)
-
-      time_t t = DaysSince1970 * (24UL * 3600UL);
-      tmElements_t tm;
-
-      tNMEA0183Msg::breakTime(t, tm);
-
-      //tNMEA0183Msg::SetYear(tm, 2020);
-      tNMEA0183Msg::SetMonth(tm, _uEtaMonth);
-      tNMEA0183Msg::SetDay(tm, _uEtaDay);
-      tNMEA0183Msg::SetHour(tm, 0);
-      tNMEA0183Msg::SetMin(tm, 0);
-      tNMEA0183Msg::SetSec(tm, 0);
-
-      uint16_t eta_days = tNMEA0183Msg::makeTime(tm) / (24UL * 3600UL);
 
       tN2kMsg N2kMsg;
       char CS[8];
@@ -150,12 +185,13 @@ class MyAisDecoder : public AIS::AisDecoder
       // PGN129794
       SetN2kAISClassAStatic(N2kMsg, _uMsgType, (tN2kAISRepeat) _repeat, _uMmsi,
                             _uImo, CS, Name, _uType, _uToBow + _uToStern,
-                            _uToPort + _uToStarboard, _uToStarboard, _uToBow, eta_days,
-                            (_uEtaHour * 3600) + (_uEtaMinute * 60), _uDraught / 10.0, Dest,
+                            _uToPort + _uToStarboard, _uToStarboard, _uToBow,
+                            decodeEtaDate(_uEtaMonth, _uEtaDay), decodeEtaTime(_uEtaHour, _uEtaMinute),
+                            decodeDraught(_uDraught), Dest,
                             (tN2kAISVersion) _ais_version, (tN2kGNSStype) _uFixType,
-                            (tN2kAISDTE) _dte, (tN2kAISTransceiverInformation) _ais_version);
+                            (tN2kAISDTE) _dte, receptionChannel());
 
-      NMEA2000.SendMsg(N2kMsg);
+      send(N2kMsg);
     }
 
     virtual void onType9(unsigned int , unsigned int , bool , int , int , int , unsigned int ) override {
@@ -166,27 +202,12 @@ class MyAisDecoder : public AIS::AisDecoder
                           const std::string &_strText, int _iPayloadSizeBits) override {
 
       tN2kMsg N2kMsg;
-      char Text[162];
-      strncpy(Text, _strText.c_str(), sizeof(Text) - 1);
-      Text[161] = 0;
 
-      N2kMsg.SetPGN(129802UL);
-      N2kMsg.Priority = 4;
-      N2kMsg.Destination = 255;  // Redundant, PGN129802 is broadcast by default.
-      N2kMsg.AddByte((_repeat & 0x03) << 6 | (14 & 0x3f));
-      N2kMsg.Add4ByteUInt(_uMmsi);
-      N2kMsg.AddByte(0);
+      // PGN129802
+      SetN2kAISSafetyRelatedBroadcastMsg(N2kMsg, 14, (tN2kAISRepeat)_repeat, _uMmsi,
+                                         receptionChannel(), _strText.c_str());
 
-      if (strlen(Text) == 0) {
-        N2kMsg.AddByte(0x03); N2kMsg.AddByte(0x01); N2kMsg.AddByte(0x00);
-      } else {
-        N2kMsg.AddByte(strlen(Text) + 2); N2kMsg.AddByte(0x01);
-        for (int i = 0; i < strlen(Text); i++)
-          N2kMsg.AddByte(Text[i]);
-      }
-
-      // N2kMsg.AddByte(0);  // Sequence ID
-      NMEA2000.SendMsg(N2kMsg);
+      send(N2kMsg);
     }
 
     virtual void onType18(unsigned int _uMsgType, unsigned int _uMmsi, unsigned int _uSog, bool _bPosAccuracy,
@@ -199,12 +220,12 @@ class MyAisDecoder : public AIS::AisDecoder
 
       // PGN129039
       SetN2kAISClassBPosition(N2kMsg, _uMsgType, (tN2kAISRepeat) _repeat, _uMmsi,
-                              _iPosLat / 600000.0, _iPosLon / 600000.0, _bPosAccuracy, _raim,
-                              _timestamp, decodeCog(_iCog), _uSog * knToms / 10.0,
+                              decodeLat(_iPosLat), decodeLon(_iPosLon), _bPosAccuracy, _raim,
+                              _timestamp, decodeCog(_iCog), decodeSog(_uSog), receptionChannel(),
                               decodeHeading(_iHeading), (tN2kAISUnit) _unit,
                               _diplay, _dsc, _band, _msg22, (tN2kAISMode) _assigned, _state);
 
-      NMEA2000.SendMsg(N2kMsg);
+      send(N2kMsg);
     }
 
     virtual void onType19(unsigned int _uMmsi, unsigned int _uSog, bool _bPosAccuracy, int _iPosLon, int _iPosLat,
@@ -216,7 +237,7 @@ class MyAisDecoder : public AIS::AisDecoder
       //Serial.println("19");
       tN2kMsg N2kMsg;
 
-      // PGN129040
+      // PGN129040 - the library has no setter; layout follows canboat (54 bytes)
 
       char Name[21];
       strncpy(Name, _strName.c_str(), sizeof(Name) - 1);
@@ -227,11 +248,11 @@ class MyAisDecoder : public AIS::AisDecoder
       N2kMsg.Priority = 4;
       N2kMsg.AddByte((_repeat & 0x03) << 6 | (19 & 0x3f));
       N2kMsg.Add4ByteUInt(_uMmsi);
-      N2kMsg.Add4ByteDouble(_iPosLon / 600000.0, 1e-07);
-      N2kMsg.Add4ByteDouble(_iPosLat / 600000.0, 1e-07);
+      N2kMsg.Add4ByteDouble(decodeLon(_iPosLon), 1e-07);
+      N2kMsg.Add4ByteDouble(decodeLat(_iPosLat), 1e-07);
       N2kMsg.AddByte((_timestamp & 0x3f) << 2 | (_raim & 0x01) << 1 | (_bPosAccuracy & 0x01));
       N2kMsg.Add2ByteUDouble(decodeCog(_iCog), 1e-04);
-      N2kMsg.Add2ByteUDouble(_uSog * knToms / 10.0, 0.01);
+      N2kMsg.Add2ByteUDouble(decodeSog(_uSog), 0.01);
       N2kMsg.AddByte(0xff); // Regional Application
       N2kMsg.AddByte(0xff); // Regional Application
       N2kMsg.AddByte(_uType );
@@ -242,11 +263,12 @@ class MyAisDecoder : public AIS::AisDecoder
       N2kMsg.Add2ByteDouble(_uToStarboard, 0.1);
       N2kMsg.Add2ByteDouble(_uToBow, 0.1);
       N2kMsg.AddStr(Name, 20);
-      N2kMsg.AddByte((_dte & 0x01) | (_assigned & 0x01) << 1) ;
-      N2kMsg.AddByte(0x00);
-      N2kMsg.AddByte(0xff); // Sequence ID (Not Available)
+      // DTE (1), AIS mode (1), spare (4), AIS transceiver information (5), reserved (5)
+      tN2kAISTransceiverInformation info = receptionChannel();
+      N2kMsg.AddByte((_dte & 0x01) | (_assigned & 0x01) << 1 | (info & 0x03) << 6);
+      N2kMsg.AddByte(0xf8 | ((info >> 2) & 0x07));
 
-      NMEA2000.SendMsg(N2kMsg);
+      send(N2kMsg);
     }
 
 
@@ -266,9 +288,9 @@ class MyAisDecoder : public AIS::AisDecoder
       for (int i = strlen(Name); i < 20; i++) Name[i] = 32;
       
       // PGN129809
-      SetN2kAISClassBStaticPartA(N2kMsg, _uMsgType, (tN2kAISRepeat) _repeat, _uMmsi, Name);
+      SetN2kAISClassBStaticPartA(N2kMsg, _uMsgType, (tN2kAISRepeat) _repeat, _uMmsi, Name, receptionChannel());
 
-      NMEA2000.SendMsg(N2kMsg);
+      send(N2kMsg);
     }
 
     virtual void onType24B(unsigned int _uMsgType, unsigned int _repeat, unsigned int _uMmsi,
@@ -291,12 +313,22 @@ class MyAisDecoder : public AIS::AisDecoder
       Vendor[7] = 0;
       for (int i = strlen(Vendor); i < 7; i++) Vendor[i] = 32;
       
+      // For an auxiliary craft the 30 dimension bits carry the mothership MMSI instead
+      // (bow 9 | stern 9 | port 6 | starboard 6); otherwise there is no mothership.
+      double length = _uToBow + _uToStern, beam = _uToPort + _uToStarboard;
+      double posRefStbd = _uToStarboard, posRefBow = _uToBow;
+      uint32_t mothership = N2kUInt32NA;
+      if (isAuxiliaryCraft(_uMmsi)) {
+        mothership = (_uToBow << 21) | (_uToStern << 12) | (_uToPort << 6) | _uToStarboard;
+        length = beam = posRefStbd = posRefBow = N2kDoubleNA;
+      }
+
       // PGN129810
       SetN2kAISClassBStaticPartB(N2kMsg, _uMsgType, (tN2kAISRepeat)_repeat, _uMmsi,
-                                 _uType, Vendor, CS, _uToBow + _uToStern, _uToPort + _uToStarboard,
-                                 _uToStarboard, _uToBow, _uMmsi);
+                                 _uType, Vendor, CS, length, beam, posRefStbd, posRefBow,
+                                 mothership, receptionChannel());
 
-      NMEA2000.SendMsg(N2kMsg);
+      send(N2kMsg);
     }
 
     virtual void onType27(unsigned int , unsigned int , unsigned int , bool , int , int , int ) override {
@@ -312,16 +344,19 @@ class MyAisDecoder : public AIS::AisDecoder
     virtual void onNotDecoded(const AIS::StringRef &, int ) override {}
 
     virtual void onDecodeError(const AIS::StringRef &_strMessage, const std::string &_strError) override {
-      std::string msg(_strMessage.data(), _strMessage.size());
-      AIS::stripTrailingWhitespace(msg);
-
-      Serial.printf("%s [%s]\n", _strError.c_str(), msg.c_str());
+      logError(_strMessage, _strError);
     }
 
     virtual void onParseError(const AIS::StringRef &_strMessage, const std::string &_strError) override {
+      logError(_strMessage, _strError);
+    }
+
+  private:
+    void logError(const AIS::StringRef &_strMessage, const std::string &_strError) {
+      if (!_log) return;
       std::string msg(_strMessage.data(), _strMessage.size());
       AIS::stripTrailingWhitespace(msg);
-
-      Serial.printf("%s [%s]\n", _strError.c_str(), msg.c_str());
+      std::string line = _strError + " [" + msg + "]";
+      _log(line.c_str());
     }
 };

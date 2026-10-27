@@ -23,6 +23,8 @@ Reads AIS (AIVDM) messages from an RS485 input and converts them to NMEA 2000 PG
 
 Requires PlatformIO. Run `pio run` to build.
 
+Host-side tests of the AIS -> N2k conversion: `pio test -e native` (needs a host `gcc`/`g++` on PATH). They feed real `!AIVDM` sentences through the converter and read the N2k output back with the NMEA2000 library's parsers; see `test/test_conversion/test_main.cpp`.
+
 ## Credits
 
 - Original code by AK-Homberger

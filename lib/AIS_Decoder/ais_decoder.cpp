@@ -2,6 +2,7 @@
 #include "ais_decoder.h"
 #include "strutils.h"
 #include <memory>
+#include <stdexcept>
 
 #include <stdlib.h>
 
