@@ -22,7 +22,7 @@ It replaces the current path (WatchMate USB → SignalK on a Pi → N2k). The ga
 
 | Topic | Decision | Reason |
 |---|---|---|
-| CAN driver | Sergei Podshivalov's `NMEA2000_esp32_twai` (MIT), **vendored** into `lib/` | Uses Espressif's official TWAI driver, which includes ESP32 CAN errata fixes. Bus-off recovery is built in. The current `NMEA2000_esp32` ignores all CAN errors. Vendoring protects the build from the upstream repo changing or disappearing (it has been inactive since 2023). |
+| CAN driver | ~~Sergei Podshivalov's `NMEA2000_esp32_twai` (MIT), vendored into `lib/`~~ **Changed 2026-10-27:** own TWAI driver in a separate repo, `NMEA2000_esp32_idf_twai` (MIT, local for now), pinned by tag. See §5.3 review. | Uses Espressif's official TWAI driver, which includes ESP32 CAN errata fixes. Bus-off recovery is built in. The current `NMEA2000_esp32` ignores all CAN errors. Vendoring protects the build from the upstream repo changing or disappearing (it has been inactive since 2023). |
 | Licence | Whole project stays **LGPL-2.1+**. The vendored library keeps its MIT licence file. | Simplest, since existing code from AK-Homberger is LGPL. GPL code (for example wellenvogel's `esp32-nmea2000`, GPL-2.0) is used as reference only, never copied. |
 | Platform | `espressif32 @ 6.8.1` (Arduino core 2.0.17) | Newer bug-fix baseline. The ESP-IDF features used (TWAI, task watchdog, app rollback) are all available in it. |
 | Settings | Compile-time: `include/Config.h`, and `include/secrets.h` (gitignored) | Single boat; the network rarely changes. |
@@ -88,6 +88,9 @@ Install in a sealed enclosure with cable glands and a Micro-C drop cable, and co
 ```
 
 ### 5.3 CAN driver
+
+**Review 2026-10-27 — replaces the vendored driver.** `NMEA2000_esp32_twai` at `75fd20b` has two paths that leave CAN stuck off, which the "unmodified" rule prevents fixing: a `CANOpen()` retry after a failed `twai_start()` fails forever at `twai_driver_install()`, and a failed `twai_start()` after bus-off recovery leaves the driver stopped with nothing watching. It also wakes an alert task on every frame, carries an unused UDP side interface and listeners, and ignores the library's buffer-size settings; Timo declined to support it (NMEA2000_esp32 #25). Timo's `NMEA2000_esp32` has an empty error handler and no errata workarounds. Decision: write a small driver following Timo's pattern (no tasks; recovery driven from polled TWAI state inside the library's calls), in its own repo so HALMET can use it too. Spec: `NMEA2000_esp32_idf_twai/docs/SPEC.md`; v0.1.0 host-tested 2026-10-27. Question to Timo: [ttlappalainen/NMEA2000_esp32#39](https://github.com/ttlappalainen/NMEA2000_esp32/issues/39). The bullets below describe the superseded design and will be rewritten against that driver; the vendored `lib/NMEA2000_esp32_twai/` is removed when the new driver lands.
+
 - Create the global object directly instead of through `NMEA2000_CAN.h`:
   `NMEA2000_esp32_twai NMEA2000(GPIO_NUM_22, GPIO_NUM_19, TWAI_MODE_NORMAL, CAN_TX_QUEUE, CAN_RX_QUEUE);`
 - Call `SetN2kCANSendFrameBufSize(N2K_SEND_FRAME_BUF)` before `Open()`.
