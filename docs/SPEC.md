@@ -81,24 +81,26 @@ Install in a sealed enclosure with cable glands and a Micro-C drop cable, and co
 #define FORWARD_OWN_SHIP    false   // Also convert AIVDO
 #define LED_BRIGHTNESS      20      // 0 = LED off
 #define SERIAL_RX_BUFFER    2048
-#define CAN_TX_QUEUE        20      // TWAI driver queues (library default is 5)
-#define CAN_RX_QUEUE        32
-#define N2K_SEND_FRAME_BUF  64      // NMEA2000 library frame buffer for fast-packet bursts
+#define CAN_RX_QUEUE        32      // TWAI RX queue (SetN2kCANReceiveFrameBufSize)
+#define N2K_SEND_FRAME_BUF  64      // Send frames in total: TWAI TX queue = this - 4, library keeps 4
 #define STATS_LOG_MS        60000   // Periodic stats log line
 ```
+*Implemented 2026-10-27.* `CAN_TX_QUEUE` is gone: with `NMEA2000_esp32_idf_twai` the TX queue size comes from `N2K_SEND_FRAME_BUF` (driver sizing, as `NMEA2000_esp32`). `Config.h` also holds the pins, the 5-minute timeouts (no AIS, hotspot, rollback) and the hostname.
 
 ### 5.3 CAN driver
 
-**Review 2026-10-27 — replaces the vendored driver.** `NMEA2000_esp32_twai` at `75fd20b` has two paths that leave CAN stuck off, which the "unmodified" rule prevents fixing: a `CANOpen()` retry after a failed `twai_start()` fails forever at `twai_driver_install()`, and a failed `twai_start()` after bus-off recovery leaves the driver stopped with nothing watching. It also wakes an alert task on every frame, carries an unused UDP side interface and listeners, and ignores the library's buffer-size settings; Timo declined to support it (NMEA2000_esp32 #25). Timo's `NMEA2000_esp32` has an empty error handler and no errata workarounds. Decision: write a small driver following Timo's pattern (no tasks; recovery driven from polled TWAI state inside the library's calls), in its own repo so HALMET can use it too. Spec: `NMEA2000_esp32_idf_twai/docs/SPEC.md`; v0.1.0 host-tested 2026-10-27. Question to Timo: [ttlappalainen/NMEA2000_esp32#39](https://github.com/ttlappalainen/NMEA2000_esp32/issues/39). The bullets below describe the superseded design and will be rewritten against that driver; the vendored `lib/NMEA2000_esp32_twai/` is removed when the new driver lands.
+**Review 2026-10-27 — replaces the vendored driver.** `NMEA2000_esp32_twai` at `75fd20b` has two paths that leave CAN stuck off, which the "unmodified" rule prevents fixing: a `CANOpen()` retry after a failed `twai_start()` fails forever at `twai_driver_install()`, and a failed `twai_start()` after bus-off recovery leaves the driver stopped with nothing watching. It also wakes an alert task on every frame, carries an unused UDP side interface and listeners, and ignores the library's buffer-size settings; Timo declined to support it (NMEA2000_esp32 #25). Timo's `NMEA2000_esp32` has an empty error handler and no errata workarounds. Decision: write a small driver following Timo's pattern (no tasks; recovery driven from polled TWAI state inside the library's calls), in its own repo so HALMET can use it too. Spec: `NMEA2000_esp32_idf_twai/docs/SPEC.md`; v0.1.0 host-tested 2026-10-27. Question to Timo: [ttlappalainen/NMEA2000_esp32#39](https://github.com/ttlappalainen/NMEA2000_esp32/issues/39). 
 
-- Create the global object directly instead of through `NMEA2000_CAN.h`:
-  `NMEA2000_esp32_twai NMEA2000(GPIO_NUM_22, GPIO_NUM_19, TWAI_MODE_NORMAL, CAN_TX_QUEUE, CAN_RX_QUEUE);`
-- Call `SetN2kCANSendFrameBufSize(N2K_SEND_FRAME_BUF)` before `Open()`.
-- **Bus-off recovery is provided by the library.** Its control task watches the TWAI alerts. On `BUS_OFF` it calls `twai_initiate_recovery()`; on `BUS_RECOVERED` it calls `twai_start()`.
-- Register a `TwaiBusAlertListener`. Following rule 4, it only increments counters and sets flags for: error warning, error passive, bus-off, and recovered.
-- The main loop logs CAN state changes from those flags. For the status page, it reads `twai_get_status_info()`: state, TX/RX error counters, TX failed, RX missed/overrun. It also keeps bus-off and recovery counts.
+*Implemented 2026-10-27* (replaces the earlier bullets):
+- The driver is vendored at `v0.1.0` in `lib/NMEA2000_esp32_idf_twai/` (`SOURCE.md`), because its repo is local-only for now. When it moves to GitHub it gets pinned by tag in `lib_deps` instead. `NMEA2000_esp32` and the Sergei copy are removed.
+- Global object in `src/N2kNode.cpp`: `tNMEA2000_esp32_idf_twai NMEA2000(GPIO_NUM_22, GPIO_NUM_19);`. `SetN2kCANReceiveFrameBufSize(CAN_RX_QUEUE)` and `SetN2kCANSendFrameBufSize(N2K_SEND_FRAME_BUF)` are called before `Open()`.
+- **Bus-off recovery and restart are in the driver,** inside `ParseMessages()`. There are no callbacks from other tasks, so rule 4 holds with no flags.
+- `src/CanStatus.cpp` polls `GetStatus()` every 100 ms. It logs state changes and new bus-off, recovery, restart-failure, error-warning and error-passive events. The same status (state, TEC/REC, TX failed, RX missed/overrun, counts) feeds the stats line and, in phase 2, the status page.
 
 ### 5.4 Serial input
+*Implemented 2026-10-27* in `src/AisInput.cpp`. It handles at most 10 sentences per loop. "Decode errors" are the decoder's decoding errors (which include checksum errors) plus sentences too long for the buffer. The buffer is `MAX_NMEA0183_MSG_BUF_LEN + 8`, and `GetMessage()` gets one byte less than that, which leaves room for the `"
+"`.
+
 - Call `Serial1.setRxBufferSize(SERIAL_RX_BUFFER)`, then `Serial1.begin(AIS_BAUD, SERIAL_8N1, 26, 32)`.
 - Attach it to NMEA0183 with `SetMessageStream()` + `Open()`, **not** `Begin()`. `Begin()` calls `begin()` a second time.
 - Accept `VDM`, plus `VDO` when `FORWARD_OWN_SHIP` is true.
@@ -133,6 +135,15 @@ Code review (2026-10-27) of `include/NMEA0183AIStoNMEA2000.h` found AIS "not ava
 - Prefer the library's setters where one exists for the PGN (e.g. 129802 `SetN2kAISSafetyRelatedBroadcastMsg`) over hand-built messages; keep hand-built 129038 only if the library setter can't carry a needed field, and note why in a comment.
 
 ### 5.5 LED (non-blocking)
+*Implemented 2026-10-27:* decisions in `include/LedPattern.h` (host-tested), driving in `src/Led.cpp`.
+- **Priority, highest first:** OTA, boot, CAN fault, AIS flash, blips, off.
+- **Timing:**
+  - blips are 100 ms
+  - the "no AIS" blip is at the start of each 5 s cycle, and the hotspot blip is 2.5 s later, so both can show
+  - during a CAN fault the LED only blinks red
+- **Boot blue** is latched, so it doesn't come back when `millis()` wraps.
+- **"No AIS"** is measured from boot until the first sentence arrives.
+
 The LED is driven by a state that the loop updates; nothing may call `delay()`. Only call `FastLED.show()` when the colour changes. At `LED_BRIGHTNESS 0`, the LED is never driven.
 
 | State | LED | Phase |
@@ -146,23 +157,29 @@ The LED is driven by a state that the loop updates; nothing may call `delay()`. 
 | OTA in progress | White | 1 |
 
 ### 5.6 Watchdog
+*Implemented 2026-10-27* in `src/main.cpp` / `src/Ota.cpp`.
+
 - Call `enableLoopWDT()` at the end of `setup()` (5 s timeout).
 - Anything that must block on purpose (OTA, §5.10) disables it first and re-enables it afterwards.
 - At boot, log the reset reason (`esp_reset_reason()`).
 
 ### 5.7 N2k identity
+*Implemented 2026-10-27* in `src/N2kNode.cpp`. The model serial code is the same 21-bit unique number (it was "1"). The product code stays 10.
+
 - Keep the existing node address stored in NVS (namespace `nvs`, key `LastNodeAddress`).
 - Product information: model ID `"AIS Gateway"`, software version from `FW_VERSION` (`include/Version.h`, starting at `1.1.0`), model version `"M5 Atom + CAN + Tail485"`.
 - Device information: function 135 (NMEA 0183 gateway), class 25, manufacturer code 2046. Keep the unique number derived from the MAC, masked to 21 bits.
 - **Announce the transmitted PGNs** with `ExtendTransmitMessages()`: 129038, 129039, 129040, 129794, 129802, 129809, 129810. This lets device lists and diagnostic tools show the gateway as an AIS source.
 
 ### 5.8 Logging
+*Implemented 2026-10-27* in `src/Log.cpp` and `src/Stats.cpp`. Lines are `[uptime s] LEVEL message`. AIS decode errors are logged as WARN lines as well as counted.
+
 - Add a `logf(level, fmt, ...)` function in `src/Log.cpp` with levels INFO, WARN and ERROR, and replace all `Serial.printf` calls with it.
 - Phase 1 writes to `Serial` only. Phase 2 adds the in-memory buffer without changing any call sites.
 - Every `STATS_LOG_MS`, log one stats line: sentences, AIS decoded, decode errors, N2k sent/failed, CAN state, bus-off count, free/minimum heap.
 
 ### 5.9 WiFi and fallback hotspot
-- **Normal operation:** station mode using `WIFI_SSID` / `WIFI_PASS` from `secrets.h`, with hostname `ais-gateway`. `WiFi.begin()` is non-blocking, and reconnection is automatic. Advertise over mDNS as `ais-gateway.local` (`_http._tcp`, `_arduino._tcp`).
+- **Normal operation:** station mode using `WIFI_SSID` / `WIFI_PASS` from `secrets.h`, with hostname `ais-gateway`. `WiFi.begin()` is non-blocking, and reconnection is automatic. Advertise over mDNS as `ais-gateway.local` (`_http._tcp`, `_arduino._tcp`). *Implemented 2026-10-27 (`src/Net.cpp`, decisions in `include/NetPolicy.h`, host-tested):* ArduinoOTA registers the mDNS name and `_arduino._tcp`. `_http._tcp` is added in phase 2, when there is a web server to advertise. If the boat network is still missing 60 s after the last `WiFi.begin()`, the begin is reissued, on top of the core's own auto-reconnect.
 - **Fallback:** if the boat network has not been connected for **5 minutes** (after boot or after losing it), start a WPA2 hotspot:
   - SSID `AIS-Gateway-XXXX` (last 2 MAC bytes), password `AP_PASS` from `secrets.h`, address `192.168.4.1`.
   - It serves OTA, and from phase 2 the status page, exactly as normal operation does.
@@ -176,6 +193,8 @@ The LED is driven by a state that the loop updates; nothing may call `delay()`. 
 - Recovering from a changed router: wait for the fallback hotspot, join it from a laptop, then OTA a build with the new `secrets.h`.
 
 ### 5.10 OTA (ArduinoOTA)
+*Implemented 2026-10-27* in `src/Ota.cpp`. The LED turns white straight away in `onStart`, because the upload then blocks the loop.
+
 - Password is `OTA_PASS` from `secrets.h`.
 - `onStart`: log it, disable the loop watchdog, and turn the LED white.
 - `onEnd` / `onError`: log it and re-enable the watchdog.
@@ -190,6 +209,14 @@ The LED is driven by a state that the loop updates; nothing may call `delay()`. 
   Through the hotspot: `pio run -e m5stack-atom-ota -t upload --upload-port 192.168.4.1`.
 
 ### 5.11 Rollback protection
+*Implemented 2026-10-27* in `src/Ota.cpp`, with the decisions in `include/RollbackPolicy.h` (host-tested).
+- **"Address claimed" is approximated.** The library doesn't expose claim completion: `IsAddressClaimStarted()` is protected. So healthy = all of:
+  - the library is open
+  - the source address is not the null address (254)
+  - TWAI is running
+  - the TX error counter is below 96, the CAN error-warning limit (our frames are being acknowledged)
+- **Check on hardware:** `CONFIG_APP_ROLLBACK_ENABLE` and `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` are set in the Arduino 2.0.17 sdkconfig. The broken-image acceptance test proves the bootloader actually rolls back.
+
 USB can't be reached, so a broken image must never leave the device unreachable. The Arduino core has app rollback enabled (`CONFIG_APP_ROLLBACK_ENABLE=y`, and it provides the weak hook `verifyRollbackLater()`).
 
 - Override `verifyRollbackLater()` to return `true`, so the core doesn't automatically mark a new image as valid.
@@ -203,14 +230,16 @@ include/Config.h                  compile-time settings
 include/Version.h                 FW_VERSION
 include/NMEA0183AIStoNMEA2000.h   existing converter (LGPL, AK-Homberger); sends go through a counting helper
 lib/AIS_Decoder/                  existing AIS decoder (MIT, aduvenhage)
-lib/NMEA2000_esp32_twai/          vendored CAN driver (MIT)
+lib/NMEA2000_esp32_idf_twai/      vendored CAN driver, own repo v0.1.0 (MIT)
 src/main.cpp                      setup/loop wiring only
-src/CanStatus.{h,cpp}             alert listener, counters, state logging
+src/N2kNode.{h,cpp}               CAN driver object, N2k identity, address in NVS, time messages, counting send
+src/CanStatus.{h,cpp}             polled driver status, state/event logging
 src/AisInput.{h,cpp}              serial read + decode
 src/Led.{h,cpp}                   LED state machine
 src/Log.{h,cpp}                   logging
 src/Stats.{h,cpp}                 counters + raw-sentence buffer
-src/Net.{h,cpp}                   WiFi station, fallback hotspot, mDNS
+src/Net.{h,cpp}                   WiFi station, fallback hotspot
+include/LedPattern.h, NetPolicy.h, RollbackPolicy.h, RawRing.h   platform-free decisions, host-tested
 src/Ota.{h,cpp}                   ArduinoOTA + rollback validation
 include/secrets.h                 WiFi/hotspot/OTA passwords (gitignored)
 include/secrets.example.h         committed template
@@ -226,7 +255,7 @@ Testing happens on the boat during a trial period; there is no separate bench se
 - Confirm there are no duplicate or ghost targets on the plotter.
 
 **Tests:**
-- [ ] `pio run` builds with the pinned versions and no warnings in new code.
+- [x] `pio run` builds with the pinned versions and no warnings in new code. *(2026-10-27, also checked with `-Wall -Wextra`; the only warning is in the existing `lib/AIS_Decoder/strutils.h`)*
 - [ ] The WatchMate feeds the gateway, and AIS targets appear on the plotter **with names and vessel details** within 6 minutes.
 - [ ] **Conversion test vectors (§5.4.1):** *(host side done 2026-10-27: `pio test -e native`, 24 tests, real sentences from gpsd and pyais samples; the on-bus `candump`/`analyzer` check below remains for the trial)* a set of real `!AIVDM` sentences covering types 1–3, 5, 14, 18, 19, 24A/B — including targets with SOG, position, rate of turn and ETA not available — taken from the WatchMate's raw-sentence buffer or a public AIS sample set (not hand-written, so checksums and multi-part framing are real). Each is sent into the gateway, the output captured from the bus (`candump` on the Pi, decoded with canboat's `analyzer`), and every field compared with the decoded AIS value. Not-available inputs must decode as "Unknown"/NA, never as a number.
 - [ ] A device list or diagnostic tool shows the gateway transmitting the AIS PGNs.
