@@ -5,6 +5,7 @@
 #include <Preferences.h>
 
 #include "AisInput.h"
+#include "BusHealth.h"
 #include "Config.h"
 #include "Log.h"
 #include "Stats.h"
@@ -19,6 +20,8 @@ static const unsigned long transmitMessages[] = {129038L, 129039L, 129040L, 1297
 
 // Today's date for the AIS type 5 ETA year (the converter rejects dates before the build).
 static void handleN2kMsg(const tN2kMsg &msg) {
+  if (msg.Source != NMEA2000.GetN2kSource()) stats.n2kReceived++;
+
   uint16_t days;
   double secondsSinceMidnight;
   unsigned char sid;
@@ -94,6 +97,12 @@ bool n2kSend(const tN2kMsg &msg) {
 
 bool n2kHealthy() {
   tNMEA2000_esp32_idf_twai::Status s = NMEA2000.GetStatus();
-  return NMEA2000.IsOpen() && NMEA2000.GetN2kSource() < N2kNullCanBusAddress &&
-         s.state == TWAI_STATE_RUNNING && s.txErrorCounter < 96;
+  BusHealthInputs b;
+  b.libraryOpen = NMEA2000.IsOpen();
+  b.source = NMEA2000.GetN2kSource();
+  b.canRunning = s.state == TWAI_STATE_RUNNING;
+  b.txErrorCounter = s.txErrorCounter;
+  b.rxErrorCounter = s.rxErrorCounter;
+  b.framesFromOthers = stats.n2kReceived;
+  return busHealthy(b);
 }

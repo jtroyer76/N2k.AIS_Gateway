@@ -11,6 +11,7 @@ struct Stats {
   uint32_t decodeErrors = 0;  // AIS decode/parse errors (incl. checksum)
   uint32_t n2kSent = 0;
   uint32_t n2kFailed = 0;
+  uint32_t n2kReceived = 0;   // N2k messages received from other nodes
   uint32_t lastAisMs = 0;     // boot time until the first sentence
   bool everAis = false;
   RawRing<20, 90> raw;        // last 20 raw sentences (phase 2 shows them)

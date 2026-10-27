@@ -210,11 +210,13 @@ The LED is driven by a state that the loop updates; nothing may call `delay()`. 
 
 ### 5.11 Rollback protection
 *Implemented 2026-10-27* in `src/Ota.cpp`, with the decisions in `include/RollbackPolicy.h` (host-tested).
-- **"Address claimed" is approximated.** The library doesn't expose claim completion: `IsAddressClaimStarted()` is protected. So healthy = all of:
+- **"Address claimed" is approximated** (`include/BusHealth.h`, host-tested). The library doesn't expose claim completion: `IsAddressClaimStarted()` is protected. So healthy = all of:
   - the library is open
   - the source address is not the null address (254)
   - TWAI is running
-  - the TX error counter is below 96, the CAN error-warning limit (our frames are being acknowledged)
+  - **both** error counters are below 96, the CAN error-warning limit (the controller is error-active)
+  - **at least one N2k message has been received from another node since boot**
+- **Why the last two:** the first version only checked TEC < 96. In the desk test (2026-10-27), a CAN Unit with nothing attached sat at TEC 0 / REC 135 (error passive, nothing transmitted). The image was wrongly marked valid at 60 s, so a build with dead CAN would have been accepted.
 - **Check on hardware:** `CONFIG_APP_ROLLBACK_ENABLE` and `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` are set in the Arduino 2.0.17 sdkconfig. The broken-image acceptance test proves the bootloader actually rolls back.
 
 USB can't be reached, so a broken image must never leave the device unreachable. The Arduino core has app rollback enabled (`CONFIG_APP_ROLLBACK_ENABLE=y`, and it provides the weak hook `verifyRollbackLater()`).

@@ -12,6 +12,5 @@ void n2kLoop();
 // Sends through the node and counts success/failure in stats.
 bool n2kSend(const tN2kMsg &msg);
 
-// Bus healthy enough to validate a new image: library open, an address held, CAN running and
-// our frames acknowledged (TX error counter below the CAN error-warning limit of 96).
+// Bus healthy enough to validate a new image (see include/BusHealth.h).
 bool n2kHealthy();

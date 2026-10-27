@@ -16,7 +16,8 @@ void statsLoop(uint32_t now) {
   lastLog = now;
   tNMEA2000_esp32_idf_twai::Status can = NMEA2000.GetStatus();
   logf(LogLevel::Info,
-       "stats: 0183 %u, AIS %u, decoded %u, errors %u | N2k sent %u, failed %u | CAN %s, bus-off %u | heap %u, min %u",
+       "stats: 0183 %u, AIS %u, decoded %u, errors %u | N2k sent %u, failed %u, rx %u | CAN %s, TEC %u, REC %u, bus-off %u | heap %u, min %u",
        stats.sentences, stats.aisSentences, stats.aisDecoded, stats.decodeErrors, stats.n2kSent, stats.n2kFailed,
-       canStateName(), can.busOffCount, ESP.getFreeHeap(), ESP.getMinFreeHeap());
+       stats.n2kReceived, canStateName(), can.txErrorCounter, can.rxErrorCounter, can.busOffCount, ESP.getFreeHeap(),
+       ESP.getMinFreeHeap());
 }

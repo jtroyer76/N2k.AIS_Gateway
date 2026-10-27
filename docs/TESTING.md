@@ -1,0 +1,100 @@
+# Testing log and next steps
+
+Start here when picking up the gateway in a new session. Spec: [SPEC.md](SPEC.md). Repo rules: [../CLAUDE.md](../CLAUDE.md).
+
+## State (2026-10-27)
+
+- Phase 1 code complete (SPEC §5.1–5.12), on `main`.
+- Host tests: `pio test -e native`, 50 tests (24 conversion, 26 logic), all passing.
+- The CAN driver is our own `NMEA2000_esp32_idf_twai` v0.1.0, vendored in `lib/` (`lib/NMEA2000_esp32_idf_twai/SOURCE.md`).
+  - Its repo is **local-only, on the home PC** (`E:\source\NMEA2000_esp32_idf_twai`), with its own spec and 22 host tests. The vendored copy is all the gateway needs.
+  - Don't edit the vendored copy. Driver changes go in the driver repo, which is then tagged and re-copied.
+- Question to Timo about TWAI drivers: [ttlappalainen/NMEA2000_esp32#39](https://github.com/ttlappalainen/NMEA2000_esp32/issues/39). Check for a reply.
+
+### What is on the device right now
+The Atom Lite (CAN Unit attached, Tail485 **not** fitted) was USB-flashed at home with:
+- `WIFI_SSID`/`WIFI_PASS` = the **home** network. On the boat it won't find that network.
+- `AP_PASS` = `change-me-hotspot`, `OTA_PASS` = `change-me-ota` (the template placeholders).
+
+So on the boat it comes up in **hotspot mode after 5 minutes**: SSID `AIS-Gateway-E08C`, password `change-me-hotspot`, address `192.168.4.1`. That's a usable way in if USB isn't convenient. Replace the placeholder passwords before the permanent install.
+
+## Desk test at home, 2026-10-27 (no CAN bus, no AIS input)
+
+| Test | Result |
+|---|---|
+| Boot log: reset reason, version, node address, running partition | ✅ |
+| Hotspot after 5 min without the configured network | ✅ at 300.7 s |
+| No station search while a hotspot client is connected | ✅ |
+| OTA through the hotspot (the "changed router" recovery), then joins the new network | ✅ (needed espota with `-I`, see below) |
+| OTA over the LAN to `ais-gateway.local` | ✅ |
+| Unhealthy OTA image rolls back after 300 s (bootloader rollback really enabled) | ✅ |
+| Free heap steady, about 220–227 KB; no crashes | ✅ |
+| Hotspot shuts down when the configured network returns | ⏳ not tested (router off would cut the session); boat trial |
+| LED colours | ⏳ not observed by Claude |
+
+Bugs found and fixed during the desk test:
+- **Rollback health check fooled by a floating bus.** With nothing on the CAN Unit, the controller sits at TEC 0 / REC 135 (error passive). The old TEC-only check marked the image valid. Healthy now also needs REC < 96 and traffic from another N2k node (`include/BusHealth.h`, SPEC §5.11).
+- **Loop watchdog resumed twice** when ArduinoOTA reported two errors for one failed upload. Pause and resume are now idempotent.
+
+### OTA from a PC with several network adapters
+If espota authenticates but then says "No response from device", the device couldn't connect back to the PC. Build, then run espota with the PC's own address on that network (`-I`):
+
+```
+pio run -e m5stack-atom-ota
+python ~/.platformio/packages/framework-arduinoespressif32/tools/espota.py -i <device IP or 192.168.4.1> -I <PC IP on that network> -p 3232 -P 3233 -a "<OTA_PASS>" -f .pio/build/m5stack-atom-ota/firmware.bin -r
+```
+
+## Next: boat test (planned for the evening of 2026-10-27)
+
+### Boat computer setup
+1. Install git and PlatformIO: VS Code with the PlatformIO extension, or PlatformIO Core.
+2. `git clone https://github.com/jtroyer76/N2k.AIS_Gateway.git`, then `pio run` (the first build downloads the toolchain).
+3. Create `include/secrets.h` from `include/secrets.example.h`:
+   - **boat** WiFi SSID and password
+   - **real** hotspot password (at least 8 characters) and OTA password
+   - export the OTA password as `AIS_OTA_PASS` for the OTA environment
+4. Plug in the Atom over USB-C and check a serial port appears (`pio device list`). If none does, the PC needs the Atom's USB-serial driver; see M5Stack's documentation.
+5. Optional: host tests need a host `gcc`/`g++`. On Windows that's e.g. MSYS2 mingw64; on Linux, the distro's gcc.
+
+### Before connecting anything
+- **WatchMate NMEA output (SPEC Q1):** check its baud rate and whether the output is differential or single-ended. The firmware assumes **38400** (`AIS_BAUD` in `include/Config.h`). If it's 4800, change that and rebuild.
+- **Trial setup (SPEC §5.13):** leave the WatchMate → SignalK USB link connected as a standby, and **turn off SignalK's N2k AIS output** so targets aren't sent twice.
+
+### Stage 1: CAN only (Atom on USB from the boat computer, no Tail485)
+Serial logs are available in this stage, so it's the most informative.
+
+1. Flash the boat build over USB: `pio run -t upload`, then `pio device monitor` (115200 baud).
+2. Connect the CAN Unit to a spare drop: CAN-H white, CAN-L blue. No termination resistor, because the backbone already has its terminators.
+3. Expected in the log:
+   - `CAN: running` with **no** "error passive" line
+   - stats line: TEC/REC near 0 and `rx` counting up (traffic from other devices)
+   - `WiFi: connected` to the boat network
+4. SignalK: the N2k source list should show the gateway ("AIS Gateway", software 1.1.0).
+5. **OTA over the boat WiFi:** `pio run -e m5stack-atom-ota -t upload`, or espota with `-I` as above. Expected:
+   - after the restart: `OTA: running from app1` + `pending verification`
+   - at 60 s: **`OTA: new image marked valid`**
+   - this is the path we could not test at home
+6. Watch for any `CAN: bus-off` / `recovered` lines. Don't force a bus-off on the live bus (SPEC §7).
+
+### Stage 2: AIS (Tail485 fitted, powered from the drop)
+USB can't be reached once the Tail485 is on, so from here it's the LED, the plotters and SignalK only.
+
+1. Wiring (SPEC §3):
+   - NET-S (red) → Tail485 9–24 V through a ~1 A inline fuse; NET-C (black) → Tail485 GND
+   - CAN-H/CAN-L → CAN Unit; leave the shield unconnected at the device end
+   - WatchMate NMEA OUT+ → Tail485 **A**, OUT− → **B** (single-ended: signal → A, B → GND)
+2. Expected:
+   - blue at boot, then a **green flash per AIS sentence**
+   - targets on both plotters **with names and vessel details** within about 6 minutes
+   - no duplicate or ghost targets
+3. Unplug the RS485 input: amber blip every 5 s after 5 minutes. Reconnect, and bridging resumes.
+4. LED meanings are in the README table. Red blinking means CAN isn't running.
+
+### Record results
+Update this file (and tick SPEC §5.13 items that pass), then the status line in nootka-specs `refit/electronics/plan.md`.
+
+## After the boat test
+- Phase 2: status and console web page (SPEC §6). Phase 1 has no logs once the Tail485 is fitted, so this is the next priority.
+- Permanent install: sealed enclosure, Micro-C drop, conformal coating if damp; 24-hour soak test.
+- On-bus conversion check with `candump` + canboat `analyzer` once the Pi has a native CAN interface (AtomS3 CAN gateway, arriving 2026-10-29).
+- Publish the driver repo to GitHub once proven; switch `lib_deps` to a tag.

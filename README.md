@@ -34,7 +34,9 @@ Requires PlatformIO.
 - `pio run -t upload` — first flash over USB (before the Tail485 is fitted).
 - `pio run -e m5stack-atom-ota -t upload` — OTA over the boat network to `ais-gateway.local`. Export the OTA password as `AIS_OTA_PASS` first.
 - Through the fallback hotspot (`AIS-Gateway-XXXX`, appears after 5 minutes without the boat network): join it, then `pio run -e m5stack-atom-ota -t upload --upload-port 192.168.4.1`.
-- A new image must come up healthy (CAN running, N2k address held) within 5 minutes, or the gateway restarts into the previous image.
+- If espota authenticates but then reports "No response from device", the PC probably has several network adapters (VPN, VirtualBox). Build with `pio run -e m5stack-atom-ota`, then run espota yourself with this PC's address on that network (this worked through the hotspot on 2026-10-27):
+  `python ~/.platformio/packages/framework-arduinoespressif32/tools/espota.py -i 192.168.4.1 -I 192.168.4.2 -p 3232 -P 3233 -a "$AIS_OTA_PASS" -f .pio/build/m5stack-atom-ota/firmware.bin -r`
+- A new image must come up healthy within 5 minutes, or the gateway restarts into the previous image. Healthy means: CAN running and error-active, an N2k address held, and traffic received from other N2k devices. So **an OTA image always rolls back when there is no N2k bus** (on the desk, for example). Flash over USB there instead.
 - Changed router or password: wait for the hotspot, join it, and OTA a build with the new `secrets.h`.
 
 ## Status LED

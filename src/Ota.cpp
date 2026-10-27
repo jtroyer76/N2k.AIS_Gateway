@@ -20,12 +20,27 @@ extern "C" bool verifyRollbackLater() { return true; }
 
 static RollbackPolicy *rollback = nullptr;
 static bool active = false;
+static bool wdtPaused = false;
+
+// ArduinoOTA can report several errors for one failed upload, so pause/resume only once each.
+static void pauseWdt() {
+  if (wdtPaused) return;
+  disableLoopWDT();
+  wdtPaused = true;
+}
+
+static void resumeWdt() {
+  if (!wdtPaused) return;
+  enableLoopWDT();
+  wdtPaused = false;
+}
 
 void otaBegin() {
+  const esp_partition_t *running = esp_ota_get_running_partition();
   esp_ota_img_states_t state;
-  bool pending = esp_ota_get_state_partition(esp_ota_get_running_partition(), &state) == ESP_OK &&
-                 state == ESP_OTA_IMG_PENDING_VERIFY;
+  bool pending = esp_ota_get_state_partition(running, &state) == ESP_OK && state == ESP_OTA_IMG_PENDING_VERIFY;
   rollback = new RollbackPolicy(pending);
+  logf(LogLevel::Info, "OTA: running from %s", running ? running->label : "?");
   if (pending)
     logf(LogLevel::Warn, "OTA: new image pending verification (valid after %lu s healthy, rollback after %lu s)",
          ROLLBACK_MIN_UPTIME_MS / 1000, ROLLBACK_TIMEOUT_MS / 1000);
@@ -35,17 +50,17 @@ void otaBegin() {
   ArduinoOTA.onStart([]() {
     active = true;
     logf(LogLevel::Info, "OTA: update started");
-    disableLoopWDT();  // the upload runs inside ArduinoOTA.handle() and blocks the loop
+    pauseWdt();  // the upload runs inside ArduinoOTA.handle() and blocks the loop
     ledShowNow(LedColor::White);
   });
   ArduinoOTA.onEnd([]() {
     logf(LogLevel::Info, "OTA: update complete, restarting");
-    enableLoopWDT();
+    resumeWdt();
   });
   ArduinoOTA.onError([](ota_error_t error) {
     active = false;
     logf(LogLevel::Error, "OTA: update failed (error %u)", (unsigned)error);
-    enableLoopWDT();
+    resumeWdt();
   });
   ArduinoOTA.begin();
 }

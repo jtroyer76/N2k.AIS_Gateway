@@ -9,6 +9,7 @@
 #include "NetPolicy.h"
 #include "RollbackPolicy.h"
 #include "RawRing.h"
+#include "BusHealth.h"
 
 void setUp() {}
 void tearDown() {}
@@ -201,6 +202,59 @@ void test_ring_truncates_long_lines() {
   TEST_ASSERT_EQUAL_STRING("0123456", r.at(0));
 }
 
+//*****************************************************************************
+// Bus health (rollback validation input)
+
+static BusHealthInputs goodBus() {
+  BusHealthInputs b;
+  b.libraryOpen = true;
+  b.source = 32;
+  b.canRunning = true;
+  b.txErrorCounter = 0;
+  b.rxErrorCounter = 0;
+  b.framesFromOthers = 25;
+  return b;
+}
+
+void test_bus_healthy_on_working_bus() {
+  TEST_ASSERT_TRUE(busHealthy(goodBus()));
+}
+
+// Seen on the desk 2026-10-27: CAN Unit with nothing attached -> TEC 0, REC 135, error passive.
+void test_bus_unhealthy_floating_bus() {
+  BusHealthInputs b = goodBus();
+  b.rxErrorCounter = 135;
+  b.framesFromOthers = 0;
+  TEST_ASSERT_FALSE(busHealthy(b));
+}
+
+void test_bus_unhealthy_without_traffic_from_others() {
+  BusHealthInputs b = goodBus();
+  b.framesFromOthers = 0;
+  TEST_ASSERT_FALSE(busHealthy(b));
+}
+
+void test_bus_unhealthy_when_frames_not_acknowledged() {
+  BusHealthInputs b = goodBus();
+  b.txErrorCounter = 128;
+  TEST_ASSERT_FALSE(busHealthy(b));
+}
+
+void test_bus_unhealthy_without_address() {
+  BusHealthInputs b = goodBus();
+  b.source = 254;
+  TEST_ASSERT_FALSE(busHealthy(b));
+}
+
+void test_bus_unhealthy_when_not_running_or_closed() {
+  BusHealthInputs b = goodBus();
+  b.canRunning = false;
+  TEST_ASSERT_FALSE(busHealthy(b));
+  b = goodBus();
+  b.libraryOpen = false;
+  TEST_ASSERT_FALSE(busHealthy(b));
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
   RUN_TEST(test_led_boot_blue);
@@ -223,5 +277,11 @@ int main(int, char **) {
   RUN_TEST(test_rollback_restarts_after_5_minutes_unhealthy);
   RUN_TEST(test_ring_keeps_last_n_in_order);
   RUN_TEST(test_ring_truncates_long_lines);
+  RUN_TEST(test_bus_healthy_on_working_bus);
+  RUN_TEST(test_bus_unhealthy_floating_bus);
+  RUN_TEST(test_bus_unhealthy_without_traffic_from_others);
+  RUN_TEST(test_bus_unhealthy_when_frames_not_acknowledged);
+  RUN_TEST(test_bus_unhealthy_without_address);
+  RUN_TEST(test_bus_unhealthy_when_not_running_or_closed);
   return UNITY_END();
 }
