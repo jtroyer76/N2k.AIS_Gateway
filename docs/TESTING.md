@@ -115,6 +115,7 @@ Boat computer: **nootka-pc** (the boat's permanent Windows 11 PC, not a laptop),
 
 ## After the boat test
 - Phase 2: status and console web page (SPEC §6). Phase 1 has no logs once the Tail485 is fitted, so this is the next priority.
+- Before the permanent install: check driver spec Q5. A report says the TWAI errata fix `TX_INTR_LOST`, which Arduino 2.0.17 enables, can cause crashes (espressif/esp-idf#9697).
 - Permanent install: sealed enclosure, Micro-C drop, conformal coating if damp; 24-hour soak test.
 - On-bus conversion check with `candump` + canboat `analyzer` once the Pi has a native CAN interface (AtomS3 CAN gateway, arriving 2026-10-29).
 - Publish the driver repo to GitHub once proven; switch `lib_deps` to a tag.
