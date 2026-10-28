@@ -115,7 +115,15 @@ Boat computer: **nootka-pc** (the boat's permanent Windows 11 PC, not a laptop),
 - `OTA_PASS` / `AP_PASS` are still the template placeholders — set real ones before the permanent install (SPEC / README).
 
 ## After the boat test
-- Phase 2: status and console web page (SPEC §6). **Code done 2026-10-28, not yet on hardware** (66 host tests). To test, flash it and open `http://ais-gateway.local/` (or `http://192.168.4.1/` through the hotspot). Check:
+- Phase 2: status and console web page (SPEC §6). **Code done 2026-10-28; desk-tested the same day** (USB flash, home WiFi, no CAN bus or AIS input), tested from the PC with HTTP requests:
+  - `/api/status`: all fields present and correct (floating bus shows CAN running at REC 135, AIS "never")
+  - `/api/log`: boot lines numbered 1–10; `since=next` returns nothing new; `since` ahead of the device gives `reset: true`
+  - `/` serves the page (6.9 KB); unknown paths give 404; `GET /api/restart` gives 404
+  - `POST /api/restart`: back within 10 s, reset reason "software restart", the log reports `reset`
+  - 60 s of polling at the page's rate (log every 1 s, status every 2 s): no failed requests; free heap 180–181 KB, compared with about 220–227 KB in phase 1; lowest ever 155 KB
+  - not yet checked: the page in a browser (looks, phone, dark mode), `more` paging past 40 lines, the hotspot address, the 7-day soak, OTA validation on the boat
+
+  To test the rest, open `http://ais-gateway.local/` (or `http://192.168.4.1/` through the hotspot). Check:
   - the tiles refresh and the console fills, including the boot lines
   - restart from the page: the console shows "gateway restarted" and carries on
   - the page works on a phone and in dark mode

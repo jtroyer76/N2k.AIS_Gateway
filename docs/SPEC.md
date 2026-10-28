@@ -294,7 +294,7 @@ Uses the core's `WebServer` (synchronous; every handler must be fast, and there'
 - **Restart button,** with a confirmation step.
 - Works on a phone and supports dark mode. Everything is inline, with no external resources, since the boat may have no internet.
 
-*Implemented 2026-10-28* (not yet run on hardware):
+*Implemented 2026-10-28*, desk-tested the same day (results in TESTING.md):
 - **Log ring:** `include/LogRing.h`, 150 lines × 200 bytes (about 32 KB rather than 18 KB). Lines are 200 bytes because the stats line can pass 160 characters; `logf`'s own buffer went from 160 to 200 to match. Lines are numbered from 1. Everything that logs runs in the main loop (ArduinoOTA's callbacks run inside `ArduinoOTA.handle()`), so there's no lock.
 - **JSON:** `include/JsonOut.h` writes into one fixed 8 KB buffer, with no heap and no `String` copies (`send_P` sends straight from it). A write that doesn't fit is dropped and flagged, so a response is never cut mid-item.
 - **`/api/log`** (`include/LogJson.h`): `{"lines":[[seq,ms,"I|W|E","text"],...],"next":S,"more":B,"lost":L,"reset":R}`. At most 40 lines per response (`LOG_JSON_MAX_LINES`). The page asks again at once while `more` is true. `lost` counts lines the ring dropped before the page read them, and `reset` means `since` was ahead of the device (it restarted). The page also spots a restart from uptime going backwards.
