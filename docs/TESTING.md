@@ -121,7 +121,8 @@ Boat computer: **nootka-pc** (the boat's permanent Windows 11 PC, not a laptop),
   - `/` serves the page (6.9 KB); unknown paths give 404; `GET /api/restart` gives 404
   - `POST /api/restart`: back within 10 s, reset reason "software restart", the log reports `reset`
   - 60 s of polling at the page's rate (log every 1 s, status every 2 s): no failed requests; free heap 180–181 KB, compared with about 220–227 KB in phase 1; lowest ever 155 KB
-  - not yet checked: the page in a browser (looks, phone, dark mode), `more` paging past 40 lines, the hotspot address, the 7-day soak, OTA validation on the boat
+  - the page in a browser: checked by Jess, "looks great"
+  - not yet checked: phone and dark mode specifically, `more` paging past 40 lines, the hotspot address, the 7-day soak, OTA validation on the boat
 
   To test the rest, open `http://ais-gateway.local/` (or `http://192.168.4.1/` through the hotspot). Check:
   - the tiles refresh and the console fills, including the boot lines
