@@ -4,6 +4,7 @@ Start here when picking up the gateway in a new session. Spec: [SPEC.md](SPEC.md
 
 ## State (2026-10-27)
 
+- **Stage 1 (CAN only) PASSED on the boat, 2026-10-27 evening** — see "Boat test results" below. Stage 2 (AIS via Tail485) deferred: the WatchMate's NMEA serial run has to be dug out of a legacy PO wiring setup first.
 - Phase 1 code complete (SPEC §5.1–5.12), on `main`.
 - Host tests: `pio test -e native`, 50 tests (24 conversion, 26 logic), all passing.
 - The CAN driver is our own `NMEA2000_esp32_idf_twai` v0.1.0, vendored in `lib/` (`lib/NMEA2000_esp32_idf_twai/SOURCE.md`).
@@ -92,6 +93,27 @@ USB can't be reached once the Tail485 is on, so from here it's the LED, the plot
 
 ### Record results
 Update this file (and tick SPEC §5.13 items that pass), then the status line in nootka-specs `refit/electronics/plan.md`.
+
+## Boat test results — 2026-10-27 evening (Stage 1, CAN only)
+
+Boat computer: **nootka-pc** (the boat's permanent Windows 11 PC, not a laptop), PlatformIO Core 6.2.0 (Python 3.12 via winget), repo cloned fresh. nootka-pc is on the tailnet, so firmware builds / OTA can be driven remotely — but it **sleeps**, so it may need waking first (and it has the Tailscale-adapter espota quirk noted below). Atom on USB (COM14, FTDI FT232 bridge), CAN Unit plugged into the Pi's Actisense drop (Pi temporarily off the bus for the test; no spare drop used). Internet: Starlink. Build `m5stack-atom`: RAM 16.5%, Flash 67.7%.
+
+**All Stage 1 checks passed:**
+- First run of the vendored `NMEA2000_esp32_idf_twai` driver on a live bus. With the bus connected: `CAN: running`, **no** error-passive line, stats `TEC 0, REC 0, bus-off 0`, `rx ~3850/min` (traffic from other nodes). (Disconnected/floating, it correctly sat at error-passive REC 135 — matches the earlier desk observation.)
+- `WiFi: connected, IP 192.168.10.154, RSSI -51` — joined on the first attempt after the SSID fix below.
+- Heap steady ~227 KB.
+- **OTA over the boat WiFi, then `OTA: new image marked valid` at 60.0 s** — the rollback health check that could not be tested at home (it needs a live bus with REC < 96 and traffic from another node). Confirmed on the real bus.
+
+**Two gotchas found and worked around (boat-computer specific):**
+1. **SSID is case-sensitive.** `secrets.h` had `nootka`; the network is **`Nootka`**. The firmware logged `WiFi: joining "nootka"` and never associated (no `WiFi: connected` line, which Net.cpp emits on success). Fixing the case → connected in 0.5 s. 802.11 SSIDs are a raw byte string, so case matters.
+2. **espota needs `-I` + a firewall allow on nootka-pc.** nootka-pc has a Tailscale adapter (100.99.127.90) alongside Wi-Fi (192.168.10.163). `pio run -e ...-ota -t upload` and plain espota authenticated then failed `No response from device`. The device's callback on TCP 3233 was also blocked by Windows Firewall (fresh Python install, no exception). Fix that worked:
+   - Allow `python.exe` / inbound TCP 3233 through Windows Firewall (one-time).
+   - `python <...>/espota.py -i 192.168.10.154 -I 192.168.10.163 -p 3232 -P 3233 -a "<OTA_PASS>" -f .pio/build/m5stack-atom-ota/firmware.bin -r`
+
+**Notes for next time:**
+- `pio device monitor` can't run non-interactively in this harness; read the port with a short pyserial script instead. **Do not toggle DTR/RTS during the OTA verify window** — a reset before the 60 s mark would roll the image back. Open with both lines held equal (no reset) to watch the verification.
+- Use `pio run -e m5stack-atom ...` to skip the `native` host-test env (fails here: no host g++/gcc installed).
+- `OTA_PASS` / `AP_PASS` are still the template placeholders — set real ones before the permanent install (SPEC / README).
 
 ## After the boat test
 - Phase 2: status and console web page (SPEC §6). Phase 1 has no logs once the Tail485 is fitted, so this is the next priority.
