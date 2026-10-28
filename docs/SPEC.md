@@ -49,7 +49,7 @@ It replaces the current path (WatchMate USB → SignalK on a Pi → N2k). The ga
 | CAN-L (blue) | CAN Unit L |
 | Shield (bare) | Not connected at the device end |
 
-The WatchMate's NMEA OUT+ connects to Tail485 **A** and OUT− to **B**. If the output is single-ended, connect the signal to A and B to GND.
+The WatchMate 850's NMEA output is non-isolated RS422 (differential), 4800 or 38400 baud (Q1, resolved). **Gray** (out+) connects to Tail485 **A**, **Yellow** (out−) to **B**. Tie the Tail485 GND to the WatchMate's DC negative (black) for a common reference. Set the WatchMate's NMEA output to NMEA+AIS at 38400.
 
 Install in a sealed enclosure with cable glands and a Micro-C drop cable, and conformal-coat the boards if the location is damp.
 
@@ -263,11 +263,11 @@ Testing happens on the boat during a trial period; there is no separate bench se
 - [ ] A device list or diagnostic tool shows the gateway transmitting the AIS PGNs.
 - [ ] CAN recovery is **not** forced; there is no fault injection on the live bus. During the trial, the bus-off and recovery counters are monitored. If a bus-off happens naturally, the log shows whether the gateway recovered.
 - [ ] Unplugging the RS485 input: the LED shows "no AIS" after 5 minutes. Reconnecting resumes bridging.
-- [ ] `pio run -e m5stack-atom-ota -t upload` updates the device over the boat network.
+- [x] `pio run -e m5stack-atom-ota -t upload` updates the device over the boat network. *(2026-10-27 on the boat, via espota run directly with `-I` plus a Windows Firewall allow on TCP 3233, because of the boat PC's Tailscale adapter; the image was marked valid at 60 s on the live bus. See TESTING.md.)*
 - [ ] Router off for 10 minutes: AIS bridging continues without interruption, and the hotspot appears after 5 minutes.
-- [ ] Through the hotspot: an OTA upload completes without the connection dropping.
+- [x] Through the hotspot: an OTA upload completes without the connection dropping. *(2026-10-27, desk test at home)*
 - [ ] Router back on, laptop disconnected: the device rejoins the boat network and the hotspot shuts down.
-- [ ] Broken image test: an image where CAN never starts rolls back to the previous version.
+- [x] Broken image test: an image where CAN never starts rolls back to the previous version. *(2026-10-27, desk test: an OTA image with no healthy bus rolled back after 300 s. The positive case, an image marked valid on a healthy bus, passed on the boat the same evening.)*
 - [ ] A 24-hour soak test: no resets, and minimum free heap is stable.
 
 ---
@@ -303,10 +303,10 @@ Uses the core's `WebServer` (synchronous; every handler must be fast, and there'
 ---
 
 ## 7. Open questions
-- **Q1.** Confirm the WatchMate model and its 0183 output: baud rate, and whether it is differential or single-ended.
-- **Q2.** Confirm the CAN Unit has no termination fitted, and whether its transceiver is isolated.
+- **Q2.** Confirm the CAN Unit has no termination fitted, and whether its transceiver is isolated. *(Stage 1 on the backbone ran at TEC/REC 0, but termination wasn't checked directly.)*
 
 ### Resolved
+- **Q1 (2026-10-27):** WatchMate 850 (WMX850). Per its manual (nootka-specs `reference/manuals/ais_watchmate_850.pdf`), the NMEA output is non-isolated RS422 (differential), 4800 or 38400 baud. Gray = out+ (A), Yellow = out− (B). The Tail485 is the right interface, and `AIS_BAUD` 38400 stays. Wiring in §3.
 - **CAN fault testing:** no forced bus-off test. Unplugging the drop cable also removes the gateway's power, so it proves nothing, and shorting CAN-H/L on the boat's live bus isn't acceptable. The bus-off and recovery counters are monitored during the trial instead.
 - **Retry after a failed restart following recovery:** rely on the library's recovery code; no extra check.
 - **Library wakes on every frame:** leave it; the library stays unmodified. No frames-per-second counter.

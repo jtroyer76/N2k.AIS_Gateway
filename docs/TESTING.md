@@ -13,11 +13,11 @@ Start here when picking up the gateway in a new session. Spec: [SPEC.md](SPEC.md
 - Question to Timo about TWAI drivers: [ttlappalainen/NMEA2000_esp32#39](https://github.com/ttlappalainen/NMEA2000_esp32/issues/39). Check for a reply.
 
 ### What is on the device right now
-The Atom Lite (CAN Unit attached, Tail485 **not** fitted) was USB-flashed at home with:
-- `WIFI_SSID`/`WIFI_PASS` = the **home** network. On the boat it won't find that network.
-- `AP_PASS` = `change-me-hotspot`, `OTA_PASS` = `change-me-ota` (the template placeholders).
+After the boat test (2026-10-27), the Atom Lite (CAN Unit attached, Tail485 **not** fitted) runs the build from nootka-pc, updated by OTA and marked valid on the live bus:
+- `WIFI_SSID` = `Nootka` (the boat network; case matters). On the boat it got 192.168.10.154.
+- `AP_PASS` = `change-me-hotspot`, `OTA_PASS` = `change-me-ota`: still the template placeholders.
 
-So on the boat it comes up in **hotspot mode after 5 minutes**: SSID `AIS-Gateway-E08C`, password `change-me-hotspot`, address `192.168.4.1`. That's a usable way in if USB isn't convenient. Replace the placeholder passwords before the permanent install.
+Away from the boat network it comes up in **hotspot mode after 5 minutes**: SSID `AIS-Gateway-E08C`, password `change-me-hotspot`, address `192.168.4.1`. At home that's the way in (or USB). Replace the placeholder passwords before the permanent install.
 
 ## Desk test at home, 2026-10-27 (no CAN bus, no AIS input)
 
@@ -58,7 +58,7 @@ python ~/.platformio/packages/framework-arduinoespressif32/tools/espota.py -i <d
 5. Optional: host tests need a host `gcc`/`g++`. On Windows that's e.g. MSYS2 mingw64; on Linux, the distro's gcc.
 
 ### Before connecting anything
-- **WatchMate NMEA output (SPEC Q1):** check its baud rate and whether the output is differential or single-ended. The firmware assumes **38400** (`AIS_BAUD` in `include/Config.h`). If it's 4800, change that and rebuild.
+- **WatchMate NMEA output (SPEC Q1, resolved 2026-10-27):** RS422 differential. In the WatchMate settings, set the NMEA output to NMEA+AIS at **38400**, which matches `AIS_BAUD` in `include/Config.h`.
 - **Trial setup (SPEC §5.13):** leave the WatchMate → SignalK USB link connected as a standby, and **turn off SignalK's N2k AIS output** so targets aren't sent twice.
 
 ### Stage 1: CAN only (Atom on USB from the boat computer, no Tail485)
@@ -83,7 +83,7 @@ USB can't be reached once the Tail485 is on, so from here it's the LED, the plot
 1. Wiring (SPEC §3):
    - NET-S (red) → Tail485 9–24 V through a ~1 A inline fuse; NET-C (black) → Tail485 GND
    - CAN-H/CAN-L → CAN Unit; leave the shield unconnected at the device end
-   - WatchMate NMEA OUT+ → Tail485 **A**, OUT− → **B** (single-ended: signal → A, B → GND)
+   - WatchMate **Gray** (out+) → Tail485 **A**, **Yellow** (out−) → **B**; Tail485 GND tied to the WatchMate's DC negative (black)
 2. Expected:
    - blue at boot, then a **green flash per AIS sentence**
    - targets on both plotters **with names and vessel details** within about 6 minutes
