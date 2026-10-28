@@ -65,7 +65,7 @@ Serial log (115200 baud, USB only): state changes, errors, and a stats line ever
 - Original code by AK-Homberger
 - AIS decoder based on https://github.com/aduvenhage/ais-decoder (MIT License)
 - Uses NMEA2000 libraries by Timo Lappalainen
-- CAN driver: NMEA2000_esp32_idf_twai (MIT), vendored in `lib/`
+- CAN driver: [NMEA2000_esp32_idf_twai](https://github.com/jtroyer76/NMEA2000_esp32_idf_twai) (MIT), pinned by tag in `platformio.ini`
 
 ## License
 

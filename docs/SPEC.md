@@ -22,7 +22,7 @@ It replaces the current path (WatchMate USB → SignalK on a Pi → N2k). The ga
 
 | Topic | Decision | Reason |
 |---|---|---|
-| CAN driver | ~~Sergei Podshivalov's `NMEA2000_esp32_twai` (MIT), vendored into `lib/`~~ **Changed 2026-10-27:** own TWAI driver in a separate repo, `NMEA2000_esp32_idf_twai` (MIT, local for now), pinned by tag. See §5.3 review. | Uses Espressif's official TWAI driver, which includes ESP32 CAN errata fixes. Bus-off recovery is built in. The current `NMEA2000_esp32` ignores all CAN errors. Vendoring protects the build from the upstream repo changing or disappearing (it has been inactive since 2023). |
+| CAN driver | ~~Sergei Podshivalov's `NMEA2000_esp32_twai` (MIT), vendored into `lib/`~~ **Changed 2026-10-27:** own TWAI driver in a separate repo, [`NMEA2000_esp32_idf_twai`](https://github.com/jtroyer76/NMEA2000_esp32_idf_twai) (MIT), pinned by tag. See §5.3 review. | Uses Espressif's official TWAI driver, which includes ESP32 CAN errata fixes. Bus-off recovery is built in. The current `NMEA2000_esp32` ignores all CAN errors. Being our own repo, pinned by tag, protects the build from upstream changes. |
 | Licence | Whole project stays **LGPL-2.1+**. The vendored library keeps its MIT licence file. | Simplest, since existing code from AK-Homberger is LGPL. GPL code (for example wellenvogel's `esp32-nmea2000`, GPL-2.0) is used as reference only, never copied. |
 | Platform | `espressif32 @ 6.8.1` (Arduino core 2.0.17) | Newer bug-fix baseline. The ESP-IDF features used (TWAI, task watchdog, app rollback) are all available in it. |
 | Settings | Compile-time: `include/Config.h`, and `include/secrets.h` (gitignored) | Single boat; the network rarely changes. |
@@ -92,7 +92,7 @@ Install in a sealed enclosure with cable glands and a Micro-C drop cable, and co
 **Review 2026-10-27 — replaces the vendored driver.** `NMEA2000_esp32_twai` at `75fd20b` has two paths that leave CAN stuck off, which the "unmodified" rule prevents fixing: a `CANOpen()` retry after a failed `twai_start()` fails forever at `twai_driver_install()`, and a failed `twai_start()` after bus-off recovery leaves the driver stopped with nothing watching. It also wakes an alert task on every frame, carries an unused UDP side interface and listeners, and ignores the library's buffer-size settings; Timo declined to support it (NMEA2000_esp32 #25). Timo's `NMEA2000_esp32` has an empty error handler and no errata workarounds. Decision: write a small driver following Timo's pattern (no tasks; recovery driven from polled TWAI state inside the library's calls), in its own repo so HALMET can use it too. Spec: `NMEA2000_esp32_idf_twai/docs/SPEC.md`; v0.1.0 host-tested 2026-10-27. Question to Timo: [ttlappalainen/NMEA2000_esp32#39](https://github.com/ttlappalainen/NMEA2000_esp32/issues/39). 
 
 *Implemented 2026-10-27* (replaces the earlier bullets):
-- The driver is vendored at `v0.1.0` in `lib/NMEA2000_esp32_idf_twai/` (`SOURCE.md`), because its repo is local-only for now. When it moves to GitHub it gets pinned by tag in `lib_deps` instead. `NMEA2000_esp32` and the Sergei copy are removed.
+- The driver was vendored at `v0.1.0` in `lib/` while its repo was local-only. **2026-10-28:** published at [jtroyer76/NMEA2000_esp32_idf_twai](https://github.com/jtroyer76/NMEA2000_esp32_idf_twai) and pinned in `lib_deps` by tag (`#v0.1.0`); the vendored copy is removed. `NMEA2000_esp32` and the Sergei copy are removed. Timo answered #39 on 2026-10-28, including a silent "transmits but receives nothing" ESP32 state seen after days of running: see the driver spec, Q1 and Q4.
 - Global object in `src/N2kNode.cpp`: `tNMEA2000_esp32_idf_twai NMEA2000(GPIO_NUM_22, GPIO_NUM_19);`. `SetN2kCANReceiveFrameBufSize(CAN_RX_QUEUE)` and `SetN2kCANSendFrameBufSize(N2K_SEND_FRAME_BUF)` are called before `Open()`.
 - **Bus-off recovery and restart are in the driver,** inside `ParseMessages()`. There are no callbacks from other tasks, so rule 4 holds with no flags.
 - `src/CanStatus.cpp` polls `GetStatus()` every 100 ms. It logs state changes and new bus-off, recovery, restart-failure, error-warning and error-passive events. The same status (state, TEC/REC, TX failed, RX missed/overrun, counts) feeds the stats line and, in phase 2, the status page.
@@ -232,7 +232,6 @@ include/Config.h                  compile-time settings
 include/Version.h                 FW_VERSION
 include/NMEA0183AIStoNMEA2000.h   existing converter (LGPL, AK-Homberger); sends go through a counting helper
 lib/AIS_Decoder/                  existing AIS decoder (MIT, aduvenhage)
-lib/NMEA2000_esp32_idf_twai/      vendored CAN driver, own repo v0.1.0 (MIT)
 src/main.cpp                      setup/loop wiring only
 src/N2kNode.{h,cpp}               CAN driver object, N2k identity, address in NVS, time messages, counting send
 src/CanStatus.{h,cpp}             polled driver status, state/event logging

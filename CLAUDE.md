@@ -9,7 +9,7 @@ AIS (NMEA 0183) → NMEA 2000 gateway for the boat Nootka. Boat-wide docs and th
 - No AI attribution in git commits (no Co-Authored-By lines).
 - Changes in behaviour are test-first where the logic can run on the host: platform-free decisions go in `include/*.h` with tests in `test/`.
 - Nothing in the main loop may block (SPEC §4).
-- Don't edit `lib/NMEA2000_esp32_idf_twai/` (vendored). Change the driver in its own repo, tag it, re-copy.
+- The CAN driver lives in its own repo ([NMEA2000_esp32_idf_twai](https://github.com/jtroyer76/NMEA2000_esp32_idf_twai)), pinned by tag in `platformio.ini`. Change it there, tag it, then bump the tag here.
 - `include/secrets.h` is gitignored. Never commit it or print its contents.
 - Keep SPEC.md and TESTING.md up to date with what was actually done and verified.
 

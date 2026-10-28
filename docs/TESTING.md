@@ -7,10 +7,8 @@ Start here when picking up the gateway in a new session. Spec: [SPEC.md](SPEC.md
 - **Stage 1 (CAN only) PASSED on the boat, 2026-10-27 evening** — see "Boat test results" below. Stage 2 (AIS via Tail485) deferred: the WatchMate's NMEA serial run has to be dug out of a legacy PO wiring setup first.
 - Phase 1 code complete (SPEC §5.1–5.12), on `main`.
 - Host tests: `pio test -e native`, 50 tests (24 conversion, 26 logic), all passing.
-- The CAN driver is our own `NMEA2000_esp32_idf_twai` v0.1.0, vendored in `lib/` (`lib/NMEA2000_esp32_idf_twai/SOURCE.md`).
-  - Its repo is **local-only, on the home PC** (`E:\source\NMEA2000_esp32_idf_twai`), with its own spec and 22 host tests. The vendored copy is all the gateway needs.
-  - Don't edit the vendored copy. Driver changes go in the driver repo, which is then tagged and re-copied.
-- Question to Timo about TWAI drivers: [ttlappalainen/NMEA2000_esp32#39](https://github.com/ttlappalainen/NMEA2000_esp32/issues/39). Check for a reply.
+- The CAN driver is our own [NMEA2000_esp32_idf_twai](https://github.com/jtroyer76/NMEA2000_esp32_idf_twai) (published 2026-10-28), pinned at `#v0.1.0` in `lib_deps`. It has its own spec and 22 host tests. Driver changes go in that repo, get a new tag, and then the tag is bumped here.
+- Timo answered [ttlappalainen/NMEA2000_esp32#39](https://github.com/ttlappalainen/NMEA2000_esp32/issues/39) on 2026-10-28. He has seen an ESP32 state where it still transmits but receives nothing, with no error flag, after 2–20 days of running. A short boat test can't rule it out. Open question Q4 in the driver spec (candidate fix: an RX-silence watchdog).
 
 ### What is on the device right now
 After the boat test (2026-10-27), the Atom Lite (CAN Unit attached, Tail485 **not** fitted) runs the build from nootka-pc, updated by OTA and marked valid on the live bus:
