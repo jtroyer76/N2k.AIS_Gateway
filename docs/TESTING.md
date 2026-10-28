@@ -6,7 +6,8 @@ Start here when picking up the gateway in a new session. Spec: [SPEC.md](SPEC.md
 
 - **Stage 1 (CAN only) PASSED on the boat, 2026-10-27 evening** — see "Boat test results" below. Stage 2 (AIS via Tail485) deferred: the WatchMate's NMEA serial run has to be dug out of a legacy PO wiring setup first.
 - Phase 1 code complete (SPEC §5.1–5.12), on `main`.
-- Host tests: `pio test -e native`, 50 tests (24 conversion, 26 logic), all passing.
+- Host tests: `pio test -e native`, 66 tests (24 conversion, 26 logic, 16 web), all passing.
+- Phase 2 web console: code done 2026-10-28, not yet run on hardware (see "After the boat test").
 - The CAN driver is our own [NMEA2000_esp32_idf_twai](https://github.com/jtroyer76/NMEA2000_esp32_idf_twai) (published 2026-10-28), pinned at `#v0.1.0` in `lib_deps`. It has its own spec and 22 host tests. Driver changes go in that repo, get a new tag, and then the tag is bumped here.
 - Timo answered [ttlappalainen/NMEA2000_esp32#39](https://github.com/ttlappalainen/NMEA2000_esp32/issues/39) on 2026-10-28. He has seen an ESP32 state where it still transmits but receives nothing, with no error flag, after 2–20 days of running. A short boat test can't rule it out. Open question Q4 in the driver spec (candidate fix: an RX-silence watchdog).
 
@@ -114,7 +115,12 @@ Boat computer: **nootka-pc** (the boat's permanent Windows 11 PC, not a laptop),
 - `OTA_PASS` / `AP_PASS` are still the template placeholders — set real ones before the permanent install (SPEC / README).
 
 ## After the boat test
-- Phase 2: status and console web page (SPEC §6). Phase 1 has no logs once the Tail485 is fitted, so this is the next priority.
+- Phase 2: status and console web page (SPEC §6). **Code done 2026-10-28, not yet on hardware** (66 host tests). To test, flash it and open `http://ais-gateway.local/` (or `http://192.168.4.1/` through the hotspot). Check:
+  - the tiles refresh and the console fills, including the boot lines
+  - restart from the page: the console shows "gateway restarted" and carries on
+  - the page works on a phone and in dark mode
+  - free heap stays steady with the page open (expect about 40 KB less than phase 1: log ring plus response buffer)
+  - on the boat: an OTA of the phase 2 build validates (SPEC §6.3)
 - Before the permanent install: check driver spec Q5. A report says the TWAI errata fix `TX_INTR_LOST`, which Arduino 2.0.17 enables, can cause crashes (espressif/esp-idf#9697).
 - Permanent install: sealed enclosure, Micro-C drop, conformal coating if damp; 24-hour soak test.
 - On-bus conversion check with `candump` + canboat `analyzer` once the Pi has a native CAN interface (AtomS3 CAN gateway, arriving 2026-10-29).

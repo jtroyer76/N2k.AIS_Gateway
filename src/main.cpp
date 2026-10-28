@@ -18,7 +18,6 @@
 // setup()/loop() wiring only. Nothing in the loop may block (SPEC 4).
 
 #include <Arduino.h>
-#include <esp_system.h>
 
 #include "AisInput.h"
 #include "CanStatus.h"
@@ -28,23 +27,9 @@
 #include "Net.h"
 #include "Ota.h"
 #include "Stats.h"
+#include "SysInfo.h"
 #include "Version.h"
-
-static const char *resetReason() {
-  switch (esp_reset_reason()) {
-    case ESP_RST_POWERON: return "power-on";
-    case ESP_RST_EXT: return "external pin";
-    case ESP_RST_SW: return "software restart";
-    case ESP_RST_PANIC: return "panic";
-    case ESP_RST_INT_WDT: return "interrupt watchdog";
-    case ESP_RST_TASK_WDT: return "task watchdog";
-    case ESP_RST_WDT: return "other watchdog";
-    case ESP_RST_DEEPSLEEP: return "deep sleep";
-    case ESP_RST_BROWNOUT: return "brownout";
-    case ESP_RST_SDIO: return "SDIO";
-    default: return "unknown";
-  }
-}
+#include "Web.h"
 
 void setup() {
   Serial.begin(115200);
@@ -55,6 +40,7 @@ void setup() {
   aisBegin();
   netBegin();
   otaBegin();
+  webBegin();
 
   enableLoopWDT();  // 5 s; OTA disables it while an upload blocks the loop
 }
@@ -67,6 +53,7 @@ void loop() {
   canPoll(now);
   netLoop(now);
   otaLoop(now, n2kHealthy());
+  webLoop(now);
 
   LedInputs led = {};
   led.now = now;

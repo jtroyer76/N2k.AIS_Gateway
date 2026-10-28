@@ -53,12 +53,17 @@ Requires PlatformIO.
 
 Serial log (115200 baud, USB only): state changes, errors, and a stats line every minute.
 
+## Web console
+
+Open `http://ais-gateway.local/` on the boat network, or `http://192.168.4.1/` through the fallback hotspot. It shows status tiles (last AIS, N2k, CAN, WiFi, uptime, memory), the live log, the last 20 raw AIS sentences, and a restart button. There's no login: it's only reachable on the boat network or through the password-protected hotspot. JSON API: `/api/status`, `/api/log?since=N`, `POST /api/restart` (SPEC §6).
+
 ## Tests
 
 `pio test -e native` runs host-side tests (needs a host `gcc`/`g++` on PATH):
 
 - `test/test_conversion` — the AIS → N2k conversion, fed with real `!AIVDM` sentences; the output is read back with the NMEA2000 library's parsers.
 - `test/test_logic` — LED pattern, WiFi fallback policy, rollback policy, raw-sentence buffer.
+- `test/test_web` — console log ring, bounded JSON writer, `/api/log` response.
 
 ## Credits
 

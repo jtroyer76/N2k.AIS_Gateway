@@ -10,6 +10,12 @@
                                     // (NMEA2000_esp32_idf_twai sizing; covers fast-packet bursts)
 #define STATS_LOG_MS        60000   // Periodic stats log line
 
+// Web console (SPEC 6)
+#define WEB_PORT            80
+#define LOG_LINES           150     // log lines kept for the console
+#define LOG_LINE_LEN        200     // per line, incl. NUL (the stats line can pass 160 characters)
+#define LOG_JSON_MAX_LINES  40      // lines per /api/log response; the page asks again if more wait
+
 // Pins: M5Stack Atom Lite + CAN Unit + Tail485
 #define CAN_TX_PIN          GPIO_NUM_22
 #define CAN_RX_PIN          GPIO_NUM_19
