@@ -317,6 +317,8 @@ Uses the core's `WebServer` (synchronous; every handler must be fast, and there'
 *Proposed 2026-10-29, not yet agreed.* The same model as the Telltale display firmware, adapted to a device with no screen: the only ways in are USB (before install), WiFi, and the button (bench only).
 
 ### 7.1 No credentials in the firmware
+*Implemented 2026-10-29* in `src/Settings.cpp` (NVS namespace `gateway`) and `include/SettingsPolicy.h` (host tests: `test/test_settings`). WiFi network and password are one setting: the network name decides whether both come from NVS or from `secrets.h`. An older `secrets.h` with `OTA_PASS` and no `DEVICE_PASS` seeds the device password from `OTA_PASS`, so OTA keeps its password. A saved or `secrets.h` device password outside 8-63 characters is replaced by a made-up one. `WIFI_SSID_OVERRIDE` test builds override the network in memory only. The compile-time `AIS_BAUD` is gone (default `AIS_BAUD_DEFAULT`).
+
 - Nothing boat-specific is compiled in. WiFi, the device password and the AIS baud rate are saved in NVS (`src/Settings.{h,cpp}`, with the platform-free rules in `include/SettingsPolicy.h`, host-tested).
 - `include/secrets.h` stays **optional, for development boards only**, so a dev board on the desk skips setup. If a setting has never been saved and `secrets.h` gives a value, that value is **saved to NVS at boot**, and the log says so. A unit running a `secrets.h` build therefore keeps its network and passwords when it later gets a release build by OTA. An installed unit can't be reached over USB, so it must never be left with nothing saved.
 - Once a setting is saved, the saved value wins, even over `secrets.h`.

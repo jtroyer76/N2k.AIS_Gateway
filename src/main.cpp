@@ -26,6 +26,7 @@
 #include "N2kNode.h"
 #include "Net.h"
 #include "Ota.h"
+#include "Settings.h"
 #include "Stats.h"
 #include "SysInfo.h"
 #include "Version.h"
@@ -35,6 +36,8 @@ void setup() {
   Serial.begin(115200);
   ledBegin();
   logf(LogLevel::Info, "AIS Gateway %s starting, reset reason: %s", FW_VERSION, resetReason());
+
+  settingsBegin();  // WiFi, device password and AIS baud, used by the modules below
 
   n2kBegin();
   aisBegin();
