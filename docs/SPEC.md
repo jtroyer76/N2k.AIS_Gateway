@@ -1,22 +1,23 @@
-# N2k.AIS_Gateway — Spec for Phase 1 & 2
+# N2k.AIS_Gateway — Spec for Phases 1–3
 
-Status: agreed draft, 2026-09-28. Conversion correctness (§5.4.1) added 2026-10-27 after a code review.
+Status: agreed draft, 2026-09-28. Conversion correctness (§5.4.1) added 2026-10-27 after a code review. Phase 3 (setup on the device, releases, web flasher; §7) added 2026-10-29: proposed, not yet agreed.
 
 ## 1. Purpose
 
-A standalone, unattended AIS → NMEA 2000 gateway. It reads AIS sentences (`!AIVDM`) from a Vesper WatchMate over RS485/NMEA 0183 and publishes them as N2k AIS PGNs.
+A standalone, unattended AIS → NMEA 2000 gateway. It reads AIS sentences (`!AIVDM`) from an AIS receiver or transponder over RS485/RS422 NMEA 0183 and publishes them as N2k AIS PGNs. Tested with a Vesper WatchMate 850.
 
-It replaces the current path (WatchMate USB → SignalK on a Pi → N2k). The gateway must keep AIS on the bus whether or not the Pi, SignalK or WiFi are up.
+A common setup without it is AIS → USB → SignalK on a computer → N2k. The gateway keeps AIS on the bus whether or not that computer, SignalK or WiFi are up.
 
 ### Goals
-- **Phase 1:** a robust bridge that can be installed and left alone. It recovers from CAN faults by itself and never blocks. It already includes **everything needed to update it once installed**: WiFi with a fallback hotspot, OTA updates from PlatformIO, and rollback protection. It is trialled on the boat, and the phase 1 acceptance tests are run there during the trial (§5.13).
+- **Phase 1:** a robust bridge that can be installed and left alone. It recovers from CAN faults by itself and never blocks. It already includes **everything needed to update it once installed**: WiFi with a fallback hotspot, OTA updates from PlatformIO, and rollback protection. It is trialled on a boat, and the phase 1 acceptance tests are run there during the trial (§5.13).
 - **Phase 2:** troubleshooting over the network: one status/console page. It is delivered to the installed unit by OTA.
+- **Phase 3:** a general product. One release binary fits every boat: nothing boat-specific is compiled in. A new unit is installed from a web flasher and set up from a phone on its setup hotspot, with no PlatformIO needed (§7).
 
 ### Non-goals
-- A web settings UI or WiFiManager. Settings are fixed at compile time.
+- ~~A web settings UI or WiFiManager. Settings are fixed at compile time.~~ *Changed 2026-10-29: phase 3 adds settings on the device (§7).*
 - SignalK integration (SignalK reads AIS from the N2k bus).
-- A physical button feature. The unit is enclosed and the button can't be reached.
-- N2k → 0183 conversion, a TCP data stream, and other inputs (see §8, Backlog).
+- A button feature for normal use. The unit is enclosed and the button can't be reached. *(Phase 3 uses it on the bench only, to reset settings; §7.4.)*
+- N2k → 0183 conversion, a TCP data stream, and other inputs (see §9, Backlog).
 
 ## 2. Key decisions
 
@@ -25,15 +26,15 @@ It replaces the current path (WatchMate USB → SignalK on a Pi → N2k). The ga
 | CAN driver | ~~Sergei Podshivalov's `NMEA2000_esp32_twai` (MIT), vendored into `lib/`~~ **Changed 2026-10-27:** own TWAI driver in a separate repo, [`NMEA2000_esp32_idf_twai`](https://github.com/jtroyer76/NMEA2000_esp32_idf_twai) (MIT), pinned by tag. See §5.3 review. | Uses Espressif's official TWAI driver, which includes ESP32 CAN errata fixes. Bus-off recovery is built in. The current `NMEA2000_esp32` ignores all CAN errors. Being our own repo, pinned by tag, protects the build from upstream changes. |
 | Licence | Whole project stays **LGPL-2.1+**. The vendored library keeps its MIT licence file. | Simplest, since existing code from AK-Homberger is LGPL. GPL code (for example wellenvogel's `esp32-nmea2000`, GPL-2.0) is used as reference only, never copied. |
 | Platform | `espressif32 @ 6.8.1` (Arduino core 2.0.17) | Newer bug-fix baseline. The ESP-IDF features used (TWAI, task watchdog, app rollback) are all available in it. |
-| Settings | Compile-time: `include/Config.h`, and `include/secrets.h` (gitignored) | Single boat; the network rarely changes. |
-| Network | Joins the boat network. **Fallback hotspot only when the network is missing for 5 minutes.** | USB can't be reached once installed, so OTA over WiFi (boat network or hotspot) is the only update path. |
+| Settings | ~~Compile-time: `include/Config.h`, and `include/secrets.h` (gitignored)~~ **Changed 2026-10-29 (phase 3):** WiFi, device password and AIS baud are saved on the device (NVS). `secrets.h` is optional and for development boards only; release builds never contain it (§7.1). | One release binary for every boat. |
+| Network | Joins the boat network. **Fallback hotspot only when the network is missing for 5 minutes.** Phase 3 adds a setup hotspot when no network is saved (§7.3). | USB can't be reached once installed, so OTA over WiFi (boat network or hotspot) is the only update path. |
 | Framework | Arduino with a plain `loop()`; ESP-IDF APIs called directly where needed | No ReactESP or SensESP; the app is small. |
 
 ## 3. Hardware
 
 | Part | Notes |
 |---|---|
-| M5Stack Atom Lite (ESP32-PICO-D4) | RGB LED on GPIO27. Button (GPIO39) not used. |
+| M5Stack Atom Lite (ESP32-PICO-D4) | RGB LED on GPIO27. Button (GPIO39): bench settings reset only, from phase 3 (§7.4). |
 | M5 CAN Unit | TX GPIO22, RX GPIO19. **No 120 Ω termination fitted.** |
 | M5 Tail485 | RX GPIO26, TX GPIO32. SP485EEN transceiver, AOZ1282CI buck regulator, 9–24 V input. |
 
@@ -128,7 +129,7 @@ Code review (2026-10-27) of `include/NMEA0183AIStoNMEA2000.h` found AIS "not ava
 - **Type 5 transceiver information:** pass the real value (channel A/B reception from the sentence's channel field, default `N2kaischannel_A_VDL_reception`), not `_ais_version` cast to `tN2kAISTransceiverInformation`. Today version 1/2/3 transponders are reported as channel B reception / channel A transmission / channel B transmission.
 - **Type 5 ETA date:**
   - The year is the **next occurrence** of the ETA month/day relative to today (an ETA of 3 January seen on 28 December is next year).
-  - "Today" comes from PGN 126992/129029, but only dates **not earlier than the firmware build date** (`__DATE__`) are accepted. This rejects the boat's old SeaTalk GPS, which reports 2007 (GPS week rollover) through the SeaTalk → N2k converter, and the 1970 default before any time message has arrived.
+  - "Today" comes from PGN 126992/129029, but only dates **not earlier than the firmware build date** (`__DATE__`) are accepted. This rejects old GPS units that report a date years in the past after a GPS week rollover (seen on the test boat: an old SeaTalk GPS reporting 2007 through a SeaTalk → N2k converter), and the 1970 default before any time message has arrived.
   - With no accepted date yet, or month/day not available, the ETA date is NA. Hour/minute not available → ETA time NA.
 - **Type 24B mothership ID:** NA (or 0) unless the MMSI is an auxiliary craft (`98xxxxxxx`), in which case the dimension bits carry the mothership MMSI. Today the vessel's own MMSI is sent.
 - **Type 19 (PGN 129040):** the hand-built message adds one byte past canboat's layout (`AddByte(0xff)` "Sequence ID"); drop it. The GNSS-type nibble (`_fixtype << 4`) and DTE/AIS-mode bits were checked against canboat and are correct.
@@ -179,6 +180,8 @@ The LED is driven by a state that the loop updates; nothing may call `delay()`. 
 - Every `STATS_LOG_MS`, log one stats line: sentences, AIS decoded, decode errors, N2k sent/failed, CAN state, bus-off count, free/minimum heap.
 
 ### 5.9 WiFi and fallback hotspot
+*Phase 3 (§7) replaces the `secrets.h` values below with saved settings: the network from §7.2, and the device password for the hotspot. The fallback rules here stay.*
+
 - **Normal operation:** station mode using `WIFI_SSID` / `WIFI_PASS` from `secrets.h`, with hostname `ais-gateway`. `WiFi.begin()` is non-blocking, and reconnection is automatic. Advertise over mDNS as `ais-gateway.local` (`_http._tcp`, `_arduino._tcp`). *Implemented 2026-10-27 (`src/Net.cpp`, decisions in `include/NetPolicy.h`, host-tested):* ArduinoOTA registers the mDNS name and `_arduino._tcp`. `_http._tcp` is added in phase 2, when there is a web server to advertise. If the boat network is still missing 60 s after the last `WiFi.begin()`, the begin is reissued, on top of the core's own auto-reconnect.
 - **Fallback:** if the boat network has not been connected for **5 minutes** (after boot or after losing it), start a WPA2 hotspot:
   - SSID `AIS-Gateway-XXXX` (last 2 MAC bytes), password `AP_PASS` from `secrets.h`, address `192.168.4.1`.
@@ -195,7 +198,7 @@ The LED is driven by a state that the loop updates; nothing may call `delay()`. 
 ### 5.10 OTA (ArduinoOTA)
 *Implemented 2026-10-27* in `src/Ota.cpp`. The LED turns white straight away in `onStart`, because the upload then blocks the loop.
 
-- Password is `OTA_PASS` from `secrets.h`.
+- Password is `OTA_PASS` from `secrets.h`. *(Phase 3: the device password, §7.2.)*
 - `onStart`: log it, disable the loop watchdog, and turn the LED white.
 - `onEnd` / `onError`: log it and re-enable the watchdog.
 - Add a PlatformIO environment:
@@ -242,7 +245,7 @@ src/Stats.{h,cpp}                 counters + raw-sentence buffer
 src/Net.{h,cpp}                   WiFi station, fallback hotspot
 include/LedPattern.h, NetPolicy.h, RollbackPolicy.h, RawRing.h   platform-free decisions, host-tested
 src/Ota.{h,cpp}                   ArduinoOTA + rollback validation
-include/secrets.h                 WiFi/hotspot/OTA passwords (gitignored)
+include/secrets.h                 WiFi/hotspot/OTA passwords (gitignored; optional dev defaults from phase 3, §7.1)
 include/secrets.example.h         committed template
 ```
 
@@ -252,7 +255,7 @@ Phase 2 adds `src/WebUI.{h,cpp}` (web server, page, API) and the log ring buffer
 Testing happens on the boat during a trial period; there is no separate bench setup.
 
 **Trial setup:**
-- The WatchMate's USB → SignalK connection stays in place as a **standby fallback**, with SignalK's N2k AIS output **disabled**. If the gateway misbehaves, re-enable it in SignalK.
+- On the test boat, the AIS unit's existing USB → SignalK connection stays in place as a **standby fallback**, with SignalK's N2k AIS output **disabled**. If the gateway misbehaves, re-enable it in SignalK.
 - Confirm there are no duplicate or ghost targets on the plotter.
 
 **Tests:**
@@ -278,7 +281,7 @@ Testing happens on the boat during a trial period; there is no separate bench se
 - The last 20 raw AIS sentences are kept in their own ring buffer (filled from phase 1), so raw traffic never pushes log lines out.
 
 ### 6.2 Web page and API
-Uses the core's `WebServer` (synchronous; every handler must be fast, and there's no upload endpoint). There's no authentication; the page is only reachable on the trusted boat network or through the password-protected hotspot.
+Uses the core's `WebServer` (synchronous; every handler must be fast, and there's no upload endpoint). There's no authentication; the page is only reachable on the trusted boat network or through the password-protected hotspot. *(Phase 3 adds settings and a firmware upload, which need the device password; §7.5.)*
 
 | Endpoint | Returns |
 |---|---|
@@ -309,19 +312,99 @@ Uses the core's `WebServer` (synchronous; every handler must be fast, and there'
 
 ---
 
-## 7. Open questions
+## 7. Phase 3 — Setup on the device, releases, web flasher
+
+*Proposed 2026-10-29, not yet agreed.* The same model as the Telltale display firmware, adapted to a device with no screen: the only ways in are USB (before install), WiFi, and the button (bench only).
+
+### 7.1 No credentials in the firmware
+- Nothing boat-specific is compiled in. WiFi, the device password and the AIS baud rate are saved in NVS (`src/Settings.{h,cpp}`, with the platform-free rules in `include/SettingsPolicy.h`, host-tested).
+- `include/secrets.h` stays **optional, for development boards only**, so a dev board on the desk skips setup. If a setting has never been saved and `secrets.h` gives a value, that value is **saved to NVS at boot**, and the log says so. A unit running a `secrets.h` build therefore keeps its network and passwords when it later gets a release build by OTA. An installed unit can't be reached over USB, so it must never be left with nothing saved.
+- Once a setting is saved, the saved value wins, even over `secrets.h`.
+- CI and the release build fail if `include/secrets.h` exists (`test ! -e include/secrets.h`).
+
+### 7.2 Settings
+| Setting | Default | Notes |
+|---|---|---|
+| WiFi network and password | none | Case matters in the network name (seen on the test boat: a lower-case name never joined). |
+| Device password | made up on first boot | 12 characters from `a-z 2-9`, without the look-alikes `0 O 1 l i` (as Telltale). Protects the fallback hotspot (WPA2), OTA (ArduinoOTA and the web upload) and saving settings from the boat network. |
+| AIS baud | 38400 | 38400 or 4800. Replaces the compile-time `AIS_BAUD`. |
+
+- **Seeing the device password:** it's logged on serial at every boot. Serial needs the device in hand on USB, which is as good as physical access. The web flasher's "Logs & Console" shows it straight after install. The setup page shows it on the setup hotspot (§7.3), and on the boat network after entering it. It's never in `/api/status` or the log ring.
+- Changing it needs the current password, except on the setup and fallback hotspots, where joining already needed it or nothing is set up yet.
+
+### 7.3 Setup hotspot (no network saved)
+- **When:** at boot when no WiFi network is saved: straight away, not after 5 minutes.
+- **Network:** `AIS-Gateway-XXXX` (last 2 MAC bytes, as the fallback hotspot), **open (no password)**, address `192.168.4.1`. Open only while nothing is set up: there is nothing to protect yet, and with no screen there's nowhere to show a password. The risk is someone in WiFi range configuring a new unit before its owner does. Tasmota and others make the same choice.
+- **Captive portal:** every DNS name answers `192.168.4.1`, and unknown URLs redirect to the setup page, so a phone opens it by itself.
+- Networks in range are scanned just before the hotspot comes up, for the setup page (scanning changes channel and would drop a joined phone).
+- **Saving a network** restarts the gateway. From then on, the §5.9 rules apply: join the network, and fall back to the WPA2 hotspot after 5 minutes without it.
+- LED: the purple hotspot blip, plus a distinct pattern for "not set up" (pattern to choose in `include/LedPattern.h`).
+- AIS bridging runs normally while unconfigured: WiFi state never affects bridging.
+
+### 7.4 Bench reset (button)
+- Hold the button for **10 s**: clear WiFi and the device password, then restart into the setup hotspot (a new password is made up). The N2k node address and the AIS baud are kept.
+- For the bench only: the button can't be reached once the unit is enclosed (§3). Recovery for an installed unit with a lost password: open the enclosure, or USB.
+- A short press does nothing, so a knock can't reset it.
+
+### 7.5 Setup page and web API
+On the phase 2 web server. The status/console page gets a Settings link.
+
+| Endpoint | Auth | Does |
+|---|---|---|
+| `GET /setup` | none | The setup page: network (with the scanned names to tap), WiFi password (blank keeps the saved one for the same network), AIS baud, device password (shown per §7.2, new one optional). On the setup hotspot `/` serves this page. |
+| `GET /api/scan` | none | The networks found by the last scan. |
+| `POST /api/settings` | device password, except on a hotspot | Saves and restarts. |
+| `POST /ota` | device password | Firmware upload (the release's `-update.bin`) from the page, for owners without PlatformIO. Pauses the loop watchdog like ArduinoOTA (§5.10); the rollback rules (§5.11) apply. |
+
+- The upload blocks the loop while it runs, so AIS bridging pauses, as it already does for ArduinoOTA.
+- ArduinoOTA from PlatformIO stays, with the device password.
+- `POST /api/restart` stays unauthenticated (phase 2 decision): it can't change anything.
+
+### 7.6 Improv over serial: not in phase 3
+WiFi is set up only through the setup hotspot (§7.3), which lists the networks in range and works without USB. Decided 2026-10-29: one setup path for now. Improv in the web flasher is in the backlog (§9).
+
+### 7.7 Releases and web flasher
+- **CI** (`.github/workflows/ci.yml`, every pull request): no `secrets.h`, `pio run -e m5stack-atom`, `pio test -e native`.
+- **Release** (`.github/workflows/release.yml`, on a `v*` tag), modelled on Telltale's:
+  - build without `secrets.h`, run the host tests
+  - publish a GitHub release with `ais-gateway-<ver>-full.bin` (bootloader, partitions, OTA data and app merged, written at `0x0`) and `ais-gateway-<ver>-update.bin` (the app alone, for OTA)
+  - deploy the web flasher (`site/`, ESP Web Tools, the same version Telltale uses) to GitHub Pages, with the firmware copied into the site
+- `FW_VERSION` comes from the tag (`git describe`), not a hand-edited `Version.h`.
+- The flasher works from Chrome or Edge over USB. Install **before** fitting the Tail485, while USB can be reached. Installing without erasing keeps the settings.
+- The README links the flasher URL directly, and the repo's GitHub "Website" field points to it.
+
+### 7.8 Generic docs
+- README, SPEC and TESTING describe a general product. Boat-specific details (network names, addresses, computers, people) don't go in this repo; "the test boat" is fine.
+- No history rewrite for what's already committed.
+
+### 7.9 Phase 3 acceptance
+- [ ] CI passes on a pull request; a build with `include/secrets.h` present fails the check.
+- [ ] A release tag publishes both binaries and the flasher.
+- [ ] Fresh board, full erase, install from the flasher: the device password shows in the flasher's console, and the open setup hotspot appears at once.
+- [ ] From a phone: the setup page opens by itself, lists the networks in range, and saving joins the network.
+- [ ] After setup, the fallback hotspot needs the device password.
+- [ ] Saving settings from the boat network without the password is refused; with it, it's saved.
+- [ ] A unit running a `secrets.h` build, given a release build by OTA, keeps its network and passwords (§7.1).
+- [ ] Web upload of a `-update.bin` validates on a live bus, and an unhealthy one rolls back.
+- [ ] Bench reset: 10 s hold brings back the setup hotspot; a short press does nothing.
+- [ ] AIS bridging carries on through setup, scans and saves (except during a firmware upload).
+
+---
+
+## 8. Open questions
 - **Q2.** Confirm the CAN Unit has no termination fitted, and whether its transceiver is isolated. *(Stage 1 on the backbone ran at TEC/REC 0, but termination wasn't checked directly.)*
 
 ### Resolved
-- **Q1 (2026-10-27):** WatchMate 850 (WMX850). Per its manual (nootka-specs `reference/manuals/ais_watchmate_850.pdf`), the NMEA output is non-isolated RS422 (differential), 4800 or 38400 baud. Gray = out+ (A), Yellow = out− (B). The Tail485 is the right interface, and `AIS_BAUD` 38400 stays. Wiring in §3.
+- **Q1 (2026-10-27):** WatchMate 850 (WMX850). Per its manual, the NMEA output is non-isolated RS422 (differential), 4800 or 38400 baud. Gray = out+ (A), Yellow = out− (B). The Tail485 is the right interface, and `AIS_BAUD` 38400 stays. Wiring in §3.
 - **CAN fault testing:** no forced bus-off test. Unplugging the drop cable also removes the gateway's power, so it proves nothing, and shorting CAN-H/L on the boat's live bus isn't acceptable. The bus-off and recovery counters are monitored during the trial instead.
 - **Retry after a failed restart following recovery:** rely on the library's recovery code; no extra check.
 - **Library wakes on every frame:** leave it; the library stays unmodified. No frames-per-second counter.
 - **11-bit (non-N2k) frames:** leave them; they don't occur on this bus.
 
-## 8. Backlog (Phase 3, not committed)
-- A 0183 TCP stream on port 10110 for SignalK, OpenCPN or the 7" display (non-blocking; drop data when a client's buffer is full).
+## 9. Backlog (not committed)
+- A 0183 TCP stream on port 10110 for SignalK, OpenCPN or a display (non-blocking; drop data when a client's buffer is full).
 - Automatic baud detection (alternate 38400/4800 until sentences with valid checksums arrive).
 - A plain TCP log port (`nc ais-gateway.local 23`).
-- A browser-based installer (ESP Web Tools and GitHub Actions) if the project is open-sourced.
-- WiFiManager provisioning, if units are ever shared or sold.
+- A hostname setting, for more than one gateway on one network.
+- Improv serial, so the web flasher asks for WiFi straight after installing. Open if added: an existing library (licence must suit LGPL-2.1+) or a small own implementation, and whether it works on the Atom's USB-serial bridge.
+- ~~A browser-based installer~~ and ~~WiFiManager provisioning~~: now phase 3 (§7).
