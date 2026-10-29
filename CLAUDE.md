@@ -8,7 +8,7 @@ This is a public, general product: no boat names, hostnames, network names, addr
 
 ## Rules
 - **Never guess.** No part numbers, spec values, ratings, API behaviour or quantitative claims unless verified (datasheet, library source, docs, this repo). Say "I don't know" otherwise.
-- No AI attribution in git commits (no Co-Authored-By lines).
+- No AI attribution in commits or PRs (no Co-Authored-By lines, no "Generated with Claude Code" footers).
 - Changes in behaviour are test-first where the logic can run on the host: platform-free decisions go in `include/*.h` with tests in `test/`.
 - Nothing in the main loop may block (SPEC §4).
 - The CAN driver lives in its own repo ([NMEA2000_esp32_idf_twai](https://github.com/jtroyer76/NMEA2000_esp32_idf_twai)), pinned by tag in `platformio.ini`. Change it there, tag it, then bump the tag here.
