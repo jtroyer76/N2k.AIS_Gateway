@@ -7,6 +7,7 @@
 #include "Log.h"
 #include "N2kNode.h"
 #include "NMEA0183AIStoNMEA2000.h"
+#include "Settings.h"
 #include "Stats.h"
 
 static const int kMaxSentencesPerPoll = 10;  // bounded work per loop
@@ -22,12 +23,12 @@ static MyAisDecoder decoder(
 
 void aisBegin() {
   Serial1.setRxBufferSize(SERIAL_RX_BUFFER);  // before begin()
-  Serial1.begin(AIS_BAUD, SERIAL_8N1, RS485_RX_PIN, RS485_TX_PIN);
+  Serial1.begin(settings().aisBaud, SERIAL_8N1, RS485_RX_PIN, RS485_TX_PIN);
   // SetMessageStream + Open, not Begin(): Begin() calls begin() again without our pins.
   nmea0183.SetMessageStream(&Serial1);
   nmea0183.Open();
   stats.lastAisMs = millis();
-  logf(LogLevel::Info, "AIS: %d baud on RX GPIO%d, own ship %s", AIS_BAUD, RS485_RX_PIN,
+  logf(LogLevel::Info, "AIS: %lu baud on RX GPIO%d, own ship %s", (unsigned long)settings().aisBaud, RS485_RX_PIN,
        FORWARD_OWN_SHIP ? "forwarded" : "ignored");
 }
 

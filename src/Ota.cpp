@@ -8,12 +8,7 @@
 #include "Led.h"
 #include "Log.h"
 #include "RollbackPolicy.h"
-
-#if __has_include("secrets.h")
-#include "secrets.h"
-#else
-#error "Copy include/secrets.example.h to include/secrets.h and fill it in"
-#endif
+#include "Settings.h"
 
 // Tell the Arduino core not to mark a new OTA image valid at boot; otaLoop() decides (5.11).
 extern "C" bool verifyRollbackLater() { return true; }
@@ -46,7 +41,7 @@ void otaBegin() {
          ROLLBACK_MIN_UPTIME_MS / 1000, ROLLBACK_TIMEOUT_MS / 1000);
 
   ArduinoOTA.setHostname(HOSTNAME);  // also mDNS ais-gateway.local with _arduino._tcp
-  ArduinoOTA.setPassword(OTA_PASS);
+  ArduinoOTA.setPassword(settings().devicePass);
   ArduinoOTA.onStart([]() {
     active = true;
     logf(LogLevel::Info, "OTA: update started");

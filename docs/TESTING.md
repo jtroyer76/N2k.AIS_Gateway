@@ -11,6 +11,9 @@ Start here when picking up the gateway in a new session. Spec: [SPEC.md](SPEC.md
 - The CAN driver is our own [NMEA2000_esp32_idf_twai](https://github.com/jtroyer76/NMEA2000_esp32_idf_twai) (published 2026-10-28), pinned at `#v0.1.0` in `lib_deps`. It has its own spec and 22 host tests. Driver changes go in that repo, get a new tag, and then the tag is bumped here.
 - Timo answered [ttlappalainen/NMEA2000_esp32#39](https://github.com/ttlappalainen/NMEA2000_esp32/issues/39) on 2026-10-28. He has seen an ESP32 state where it still transmits but receives nothing, with no error flag, after 2–20 days of running. A short boat test can't rule it out. Open question Q4 in the driver spec (candidate fix: an RX-silence watchdog).
 
+### Settings on the device (phase 3, 2026-10-29)
+From the settings PR on, WiFi and the device password are saved on the device (SPEC §7.1). The first boot of a build with `secrets.h` saves its values, including `OTA_PASS` as the device password, so OTA keeps working. After that, **a new `secrets.h` no longer changes a saved network**: the setup page (§7.3/§7.5) does. Don't OTA a changed `secrets.h` to an installed unit expecting it to move networks.
+
 ### What is on the device right now
 After the boat test (2026-10-27), the Atom Lite (CAN Unit attached, Tail485 **not** fitted) runs the build from the boat PC, updated by OTA and marked valid on the live bus:
 - `WIFI_SSID` = the boat network (case matters).

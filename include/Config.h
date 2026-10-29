@@ -1,7 +1,7 @@
 // Compile-time settings (SPEC 5.2). Platform-free: also included by the host tests.
+// The AIS baud, WiFi and device password are saved on the device instead (SPEC 7, Settings.h).
 #pragma once
 
-#define AIS_BAUD            38400   // WatchMate AIS output; 4800 for standard 0183
 #define FORWARD_OWN_SHIP    false   // Also convert AIVDO
 #define LED_BRIGHTNESS      20      // 0 = LED off
 #define SERIAL_RX_BUFFER    2048

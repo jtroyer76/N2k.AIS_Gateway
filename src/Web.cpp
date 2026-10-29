@@ -12,6 +12,7 @@
 #include "LogJson.h"
 #include "N2kNode.h"
 #include "Net.h"
+#include "Settings.h"
 #include "Stats.h"
 #include "SysInfo.h"
 #include "Version.h"
@@ -71,7 +72,7 @@ static void handleStatus() {
   j.raw("}");
 
   j.raw(",\"ais\":{\"baud\":");
-  j.num((uint32_t)AIS_BAUD);
+  j.num(settings().aisBaud);
   j.raw(",\"sentences\":");
   j.num(stats.sentences);
   j.raw(",\"ais\":");
