@@ -11,7 +11,7 @@ A common setup without it is AIS → USB → SignalK on a computer → N2k. The 
 ### Goals
 - **Phase 1:** a robust bridge that can be installed and left alone. It recovers from CAN faults by itself and never blocks. It already includes **everything needed to update it once installed**: WiFi with a fallback hotspot, OTA updates from PlatformIO, and rollback protection. It is trialled on a boat, and the phase 1 acceptance tests are run there during the trial (§5.13).
 - **Phase 2:** troubleshooting over the network: one status/console page. It is delivered to the installed unit by OTA.
-- **Phase 3:** a general product. One release binary fits every boat: nothing boat-specific is compiled in. A new unit is installed from a web flasher and set up from a phone or the flasher, with no PlatformIO needed (§7).
+- **Phase 3:** a general product. One release binary fits every boat: nothing boat-specific is compiled in. A new unit is installed from a web flasher and set up from a phone on its setup hotspot, with no PlatformIO needed (§7).
 
 ### Non-goals
 - ~~A web settings UI or WiFiManager. Settings are fixed at compile time.~~ *Changed 2026-10-29: phase 3 adds settings on the device (§7).*
@@ -360,10 +360,8 @@ On the phase 2 web server. The status/console page gets a Settings link.
 - ArduinoOTA from PlatformIO stays, with the device password.
 - `POST /api/restart` stays unauthenticated (phase 2 decision): it can't change anything.
 
-### 7.6 Improv over serial (set up from the web flasher)
-- The firmware answers the Improv Wi-Fi serial protocol on USB, so the web flasher asks for the WiFi network straight after installing, with no hotspot step. Saving through Improv follows §7.3 (restart, then the §5.9 rules).
-- The serial log and Improv share the port; Improv frames start with their own header and the log carries on around them.
-- Library or a small own implementation: open (Q3).
+### 7.6 Improv over serial: not in phase 3
+WiFi is set up only through the setup hotspot (§7.3), which lists the networks in range and works without USB. Decided 2026-10-29: one setup path for now. Improv in the web flasher is in the backlog (§9).
 
 ### 7.7 Releases and web flasher
 - **CI** (`.github/workflows/ci.yml`, every pull request): no `secrets.h`, `pio run -e m5stack-atom`, `pio test -e native`.
@@ -382,8 +380,8 @@ On the phase 2 web server. The status/console page gets a Settings link.
 ### 7.9 Phase 3 acceptance
 - [ ] CI passes on a pull request; a build with `include/secrets.h` present fails the check.
 - [ ] A release tag publishes both binaries and the flasher.
-- [ ] Fresh board, full erase, install from the flasher: Improv asks for WiFi, the gateway joins, and the device password shows in the flasher's console.
-- [ ] Fresh board, set up from a phone instead: the open setup hotspot appears at once, the setup page opens by itself, saving joins the network.
+- [ ] Fresh board, full erase, install from the flasher: the device password shows in the flasher's console, and the open setup hotspot appears at once.
+- [ ] From a phone: the setup page opens by itself, lists the networks in range, and saving joins the network.
 - [ ] After setup, the fallback hotspot needs the device password.
 - [ ] Saving settings from the boat network without the password is refused; with it, it's saved.
 - [ ] A unit running a `secrets.h` build, given a release build by OTA, keeps its network and passwords (§7.1).
@@ -395,7 +393,6 @@ On the phase 2 web server. The status/console page gets a Settings link.
 
 ## 8. Open questions
 - **Q2.** Confirm the CAN Unit has no termination fitted, and whether its transceiver is isolated. *(Stage 1 on the backbone ran at TEC/REC 0, but termination wasn't checked directly.)*
-- **Q3.** Improv serial: an existing library (licence must suit LGPL-2.1+) or a small own implementation. Check that the flasher's Improv step works on the Atom's USB-serial bridge.
 
 ### Resolved
 - **Q1 (2026-10-27):** WatchMate 850 (WMX850). Per its manual, the NMEA output is non-isolated RS422 (differential), 4800 or 38400 baud. Gray = out+ (A), Yellow = out− (B). The Tail485 is the right interface, and `AIS_BAUD` 38400 stays. Wiring in §3.
@@ -409,4 +406,5 @@ On the phase 2 web server. The status/console page gets a Settings link.
 - Automatic baud detection (alternate 38400/4800 until sentences with valid checksums arrive).
 - A plain TCP log port (`nc ais-gateway.local 23`).
 - A hostname setting, for more than one gateway on one network.
+- Improv serial, so the web flasher asks for WiFi straight after installing. Open if added: an existing library (licence must suit LGPL-2.1+) or a small own implementation, and whether it works on the Atom's USB-serial bridge.
 - ~~A browser-based installer~~ and ~~WiFiManager provisioning~~: now phase 3 (§7).
