@@ -27,6 +27,11 @@ From the settings PR on, WiFi and the device password are saved on the device (S
 | Fallback hotspot after 5 min is WPA2 with the device password (the open profile no longer joins) | ✅ at 300.7 s |
 | Through the fallback hotspot: `/api/setup` shows the password; saving needs none | ✅ |
 | Fallback hotspot's network list | ❌ then ✅: the first try logged "scan failed to start" (the station's own connect attempt blocks a scan). Fixed: the connect attempt is stopped for the scan and resumed after, and a scan that won't start is retried for 15 s. Then: "scan found 2 network(s)" at 303.5 s |
+| Firmware upload through the fallback hotspot, wrong password | ❌ then ✅: first try reset the gateway (task watchdog: reading the dropped body took > 5 s). Fixed by pausing the watchdog for every upload. Then 403 in 8.6 s, no reset |
+| Firmware upload, right password (`curl --data-binary`, 950 KB) | ✅ 200 in 11.9 s, restarted into `app1` |
+| Uploaded image with no CAN bus rolls back | ✅ "not healthy after 300 s, restarting to roll back", back on `app0` |
+| Upload from the Settings page in a browser | ⏳ |
+| An uploaded image marked valid on a live bus | ⏳ at the boat |
 | LED double purple blip | ⏳ not observed by Claude |
 | From the boat (home) network: `ais-gateway.local/setup`, password hidden, wrong password → 403 | ⏳ needs the network's password: for the owner, from a phone |
 | Phone opens the setup page by itself | ⏳ for the owner |

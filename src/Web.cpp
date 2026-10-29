@@ -12,6 +12,7 @@
 #include "LogJson.h"
 #include "N2kNode.h"
 #include "Net.h"
+#include "Ota.h"
 #include "Settings.h"
 #include "SetupPage.h"
 #include "Stats.h"
@@ -126,6 +127,60 @@ static void handleSettingsPost() {
   settingsSave(next);
   server.send(200, "application/json", "{\"saved\":true}");
   logf(LogLevel::Info, "Web: settings saved, restarting");
+  scheduleRestart();
+}
+
+// Firmware upload (SPEC 7.5): POST /ota, body = the app image (the release's -update.bin),
+// header X-OTA-Password = the device password, as Telltale. The server hands the body over in
+// chunks; with a wrong password the chunks are read and dropped, and the answer is 403.
+static const char *uploadError = nullptr;
+static bool uploadStarted = false;
+
+static void handleOtaChunk() {
+  HTTPRaw &raw = server.raw();
+  switch (raw.status) {
+    case RAW_START:
+      otaWatchdogPause();  // reading the body blocks the loop, whatever happens to it
+      uploadError = nullptr;
+      uploadStarted = false;
+      if (!passwordMatches(server.header("X-OTA-Password").c_str(), settings().devicePass)) {
+        uploadError = "wrong device password";
+        logf(LogLevel::Warn, "Web: firmware upload refused: wrong device password");
+      } else if (server.clientContentLength() <= 0) {
+        uploadError = "no firmware in the request";
+      } else if (!otaUploadBegin(server.clientContentLength())) {
+        uploadError = "the update could not start";
+      } else {
+        uploadStarted = true;
+      }
+      break;
+    case RAW_WRITE:
+      if (uploadStarted && !otaUploadWrite(raw.buf, raw.currentSize)) {
+        uploadError = "writing the firmware failed";
+        uploadStarted = false;
+        otaUploadAbort();
+      }
+      break;
+    case RAW_END:
+      if (uploadStarted && !otaUploadEnd()) uploadError = "the firmware image is not valid";
+      uploadStarted = false;
+      otaWatchdogResume();
+      break;
+    case RAW_ABORTED:
+      if (uploadStarted) otaUploadAbort();
+      uploadStarted = false;
+      uploadError = "the upload was interrupted";
+      otaWatchdogResume();
+      break;
+  }
+}
+
+static void handleOtaDone() {
+  if (uploadError) {
+    sendError(strcmp(uploadError, "wrong device password") == 0 ? 403 : 400, uploadError);
+    return;
+  }
+  server.send(200, "application/json", "{\"updated\":true}");
   scheduleRestart();
 }
 
@@ -262,7 +317,10 @@ void webBegin() {
   server.on("/api/scan", HTTP_GET, handleScanGet);
   server.on("/api/scan", HTTP_POST, handleScanPost);
   server.on("/api/settings", HTTP_POST, handleSettingsPost);
+  server.on("/ota", HTTP_POST, handleOtaDone, handleOtaChunk);
   server.onNotFound(handleNotFound);
+  static const char *headers[] = {"X-OTA-Password"};
+  server.collectHeaders(headers, 1);
   server.begin();
   logf(LogLevel::Info, "Web: console on port %d", WEB_PORT);
 }

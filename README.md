@@ -44,6 +44,7 @@ Requires PlatformIO.
 - Through the fallback hotspot (`AIS-Gateway-XXXX`, appears after 5 minutes without the boat network): join it, then `pio run -e m5stack-atom-ota -t upload --upload-port 192.168.4.1`.
 - If espota authenticates but then reports "No response from device", the PC probably has several network adapters (VPN, VirtualBox). Build with `pio run -e m5stack-atom-ota`, then run espota yourself with this PC's address on that network (this worked through the hotspot on 2026-10-27):
   `python ~/.platformio/packages/framework-arduinoespressif32/tools/espota.py -i 192.168.4.1 -I 192.168.4.2 -p 3232 -P 3233 -a "$AIS_OTA_PASS" -f .pio/build/m5stack-atom-ota/firmware.bin -r`
+- **Without PlatformIO:** Settings (`/setup`) → Firmware update, choose a release's `-update.bin`. Or from a shell: `curl -H "X-OTA-Password: <device password>" --data-binary @ais-gateway-<ver>-update.bin http://ais-gateway.local/ota`. AIS bridging pauses during the upload; the same rollback rule applies.
 - Changed router or WiFi password: wait 5 minutes for the fallback hotspot, join it with the device password, and open `http://192.168.4.1/setup`.
 - A new image must come up healthy within 5 minutes, or the gateway restarts into the previous image. Healthy means: CAN running and error-active, an N2k address held, and traffic received from other N2k devices. So **an OTA image always rolls back when there is no N2k bus** (on the desk, for example). Flash over USB there instead.
 
@@ -64,7 +65,7 @@ Serial log (115200 baud, USB only): state changes, errors, and a stats line ever
 
 ## Web console
 
-Open `http://ais-gateway.local/` on the boat network, or `http://192.168.4.1/` through the fallback hotspot. It shows status tiles (last AIS, N2k, CAN, WiFi, uptime, memory), the live log, the last 20 raw AIS sentences, and a restart button. Viewing needs no login: it's only reachable on the boat network or through a hotspot. **Settings** (`/setup`) changes WiFi, the AIS baud and the device password; saving from the boat network needs the device password. JSON API: `/api/status`, `/api/log?since=N`, `POST /api/restart` (SPEC §6); `/api/setup`, `/api/scan`, `POST /api/settings` (SPEC §7.5).
+Open `http://ais-gateway.local/` on the boat network, or `http://192.168.4.1/` through the fallback hotspot. It shows status tiles (last AIS, N2k, CAN, WiFi, uptime, memory), the live log, the last 20 raw AIS sentences, and a restart button. Viewing needs no login: it's only reachable on the boat network or through a hotspot. **Settings** (`/setup`) changes WiFi, the AIS baud and the device password; saving from the boat network needs the device password. JSON API: `/api/status`, `/api/log?since=N`, `POST /api/restart` (SPEC §6); `/api/setup`, `/api/scan`, `POST /api/settings`, `POST /ota` (SPEC §7.5).
 
 ## Tests
 

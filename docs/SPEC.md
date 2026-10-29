@@ -366,11 +366,13 @@ On the phase 2 web server. The status/console page gets a Settings link.
 - ArduinoOTA from PlatformIO stays, with the device password.
 - `POST /api/restart` stays unauthenticated (phase 2 decision): it can't change anything.
 
-*Implemented 2026-10-29 (all but `POST /ota`)* in `src/Web.cpp` and `src/SetupPage.h`; the save rules are `applySettingsForm()` in `include/SettingsPolicy.h` (host tests in `test/test_settings`). Two endpoints more than the table:
+*Implemented 2026-10-29* in `src/Web.cpp` and `src/SetupPage.h`; the save rules are `applySettingsForm()` in `include/SettingsPolicy.h` (host tests in `test/test_settings`). Two endpoints more than the table:
 - `GET /api/setup`: version, hostname, `setup` (no network saved), `via_hotspot`, saved network name, AIS baud, and the device password only when `via_hotspot`.
 - `POST /api/scan`: starts a scan from the boat network (the page's Scan button). Refused while a hotspot is on.
 
 "Through a hotspot" means the hotspot is up and the request arrived on its address (`192.168.4.1`). A wrong device password gives 403, a bad value 400, both with `{"error": "..."}`. A network name that differs only in case is a different network, so the saved WiFi password isn't carried over. `/api/status` gains `wifi.setup`.
+
+`POST /ota` (*implemented 2026-10-29*, `src/Web.cpp` + `src/Ota.cpp`): body = the app image, header `X-OTA-Password` = the device password (as Telltale), compared in constant time (`passwordMatches()`). The core's WebServer hands a non-form body to the handler in 1436-byte chunks, written with `Update`. A wrong password still has the whole body read and dropped, then 403. **The loop watchdog is paused for every upload, authorised or not:** the desk test found a wrong-password upload reset the gateway (task watchdog), because reading ~950 KB took longer than 5 s. So anyone on the boat network can pause bridging for as long as an upload lasts; the network is trusted (§6.2). The Settings page has a Firmware update card; on a hotspot the password is filled in.
 
 ### 7.6 Improv over serial: not in phase 3
 WiFi is set up only through the setup hotspot (§7.3), which lists the networks in range and works without USB. Decided 2026-10-29: one setup path for now. Improv in the web flasher is in the backlog (§9).

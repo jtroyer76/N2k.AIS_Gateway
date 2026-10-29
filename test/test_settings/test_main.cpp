@@ -84,6 +84,15 @@ void test_password_uses_whole_alphabet() {
   for (size_t i = 0; i < n; i++) TEST_ASSERT_TRUE(seen[i]);
 }
 
+void test_password_matches() {
+  TEST_ASSERT_TRUE(passwordMatches("abcdefgh2345", "abcdefgh2345"));
+  TEST_ASSERT_FALSE(passwordMatches("abcdefgh2346", "abcdefgh2345"));
+  TEST_ASSERT_FALSE(passwordMatches("abcdefgh234", "abcdefgh2345"));    // prefix
+  TEST_ASSERT_FALSE(passwordMatches("abcdefgh23456", "abcdefgh2345"));  // longer
+  TEST_ASSERT_FALSE(passwordMatches("", "abcdefgh2345"));
+  TEST_ASSERT_FALSE(passwordMatches("ABCDEFGH2345", "abcdefgh2345"));   // case matters
+}
+
 //*****************************************************************************
 // Saving from the setup page (7.5)
 
@@ -189,5 +198,6 @@ int main() {
   RUN_TEST(test_made_up_password_length_and_alphabet);
   RUN_TEST(test_alphabet_has_no_look_alikes);
   RUN_TEST(test_password_uses_whole_alphabet);
+  RUN_TEST(test_password_matches);
   return UNITY_END();
 }

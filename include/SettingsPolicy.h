@@ -58,6 +58,15 @@ inline SettingSource settingSource(bool saved, bool inSecrets) {
   return SettingSource::Default;
 }
 
+// Compares a password without stopping at the first difference, so timing doesn't tell how much
+// of it was right (as Telltale).
+inline bool passwordMatches(const char *given, const char *expected) {
+  const size_t n = strlen(given), m = strlen(expected);
+  unsigned char diff = n != m;
+  for (size_t i = 0; i < m; i++) diff |= (unsigned char)(expected[i] ^ (i < n ? given[i] : 0));
+  return diff == 0;
+}
+
 // What the setup page sends (7.5). Blank wifiPass keeps the saved one for the same network;
 // blank newPass keeps the device password.
 struct SettingsForm {
@@ -73,7 +82,7 @@ struct SettingsForm {
 // the setup hotspot only runs while nothing is set up (7.2).
 inline const char *applySettingsForm(const GatewaySettings &cur, const SettingsForm &f, bool viaHotspot,
                                      GatewaySettings &out) {
-  if (!viaHotspot && strcmp(f.password, cur.devicePass) != 0) return "wrong device password";
+  if (!viaHotspot && !passwordMatches(f.password, cur.devicePass)) return "wrong device password";
   if (!validSsid(f.ssid)) return "network name must be 1-32 characters";
   const bool sameNetwork = strcmp(f.ssid, cur.ssid) == 0;
   const char *wifiPass = (f.wifiPass[0] == '\0' && sameNetwork) ? cur.wifiPass : f.wifiPass;

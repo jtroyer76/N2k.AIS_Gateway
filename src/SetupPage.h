@@ -28,8 +28,8 @@ button.primary{background:var(--acc);border-color:var(--acc);color:#fff;width:10
 #nets li.sel{border-color:var(--acc)}
 #nets li span{color:var(--dim);font-size:13px}
 .pw{font:16px ui-monospace,Consolas,Menlo,monospace;letter-spacing:.05em}
-#msg{display:none;padding:10px 12px;border-radius:6px;margin-top:12px}
-#msg.ok{display:block;background:var(--ok);color:#fff}#msg.bad{display:block;background:var(--bad);color:#fff}
+.msg{display:none;padding:10px 12px;border-radius:6px;margin-top:12px}
+.msg.ok{display:block;background:var(--ok);color:#fff}.msg.bad{display:block;background:var(--bad);color:#fff}
 .row{display:flex;gap:8px;align-items:center}.row h2{flex:1;font-size:15px;margin:0}
 </style></head><body>
 <header><h1>AIS Gateway setup</h1><a href="/" id="home">Status</a></header>
@@ -58,13 +58,21 @@ button.primary{background:var(--acc);border-color:var(--acc);color:#fff;width:10
 <input id="password" name="password" type="password"></div>
 </div>
 <button class="primary" type="submit">Save and restart</button>
-<div id="msg"></div>
+<div id="msg" class="msg"></div>
 </form>
+<div class="card" style="margin-top:12px">
+<div class="row"><h2>Firmware update</h2></div>
+<div class="hint">Running <span id="fwver"></span>. Choose a release's <code>-update.bin</code>. AIS bridging pauses during the upload. If the new firmware can't reach the NMEA 2000 bus within 5 minutes, the gateway goes back to this version by itself.</div>
+<label for="fwfile">Firmware file</label><input type="file" id="fwfile" accept=".bin">
+<div id="fwpw"><label for="fwpass">Device password</label><input id="fwpass" type="password"></div>
+<button type="button" id="fwgo" style="margin-top:10px">Upload and restart</button>
+<div id="fwmsg" class="msg"></div>
+</div>
 </main>
 <script>
 const $=id=>document.getElementById(id);
 let info={};
-function msg(text,ok){const m=$('msg');m.textContent=text;m.className=ok?'ok':'bad';}
+function msg(text,ok,id='msg'){const m=$(id);m.textContent=text;m.className='msg '+(ok?'ok':'bad');}
 function bars(r){return r>-60?'strong':r>-75?'good':'weak';}
 async function nets(){
  try{
@@ -90,6 +98,8 @@ async function load(){
  if(info.via_hotspot){$('pw').textContent=info.device_pass;$('cur').style.display='none';}
  else{$('pw').textContent='';$('password').required=true;}
  $('scan').style.display=info.via_hotspot?'none':'';
+ $('fwver').textContent='v'+info.version;
+ if(info.via_hotspot){$('fwpass').value=info.device_pass;$('fwpw').style.display='none';}
  nets();
 }
 $('scan').onclick=async()=>{try{await fetch('/api/scan',{method:'POST'});}catch(e){}setTimeout(nets,500);};
@@ -103,6 +113,18 @@ $('f').onsubmit=async e=>{
   msg('Saved. The gateway is restarting and will join "'+$('ssid').value+'". Join that network too, then open http://'+info.hostname+'.local/ .'+
    (np?' Your device password is now: '+np:''),true);
  }catch(err){msg("Can't reach the gateway.",false);}
+};
+$('fwgo').onclick=async()=>{
+ const f=$('fwfile').files[0];
+ if(!f){msg('Choose a firmware file first.',false,'fwmsg');return;}
+ if(!confirm('Upload '+f.name+' and restart? AIS bridging pauses during the upload.'))return;
+ msg('Uploading…',true,'fwmsg');
+ try{
+  const r=await fetch('/ota',{method:'POST',headers:{'X-OTA-Password':$('fwpass').value},body:f});
+  const j=await r.json();
+  if(!r.ok){msg(j.error||'Upload failed',false,'fwmsg');return;}
+  msg('Uploaded. The gateway is restarting with the new firmware.',true,'fwmsg');
+ }catch(e){msg("Upload failed: can't reach the gateway.",false,'fwmsg');}
 };
 load().catch(()=>msg("Can't reach the gateway.",false));
 </script></body></html>)HTML";
