@@ -31,12 +31,12 @@ From the settings PR on, WiFi and the device password are saved on the device (S
 | Merged full image (release layout) written at `0x0` after a full erase, 115200 baud | ✅ booted, version from git, new device password, setup hotspot at 7.0 s |
 | Firmware upload, right password (`curl --data-binary`, 950 KB) | ✅ 200 in 11.9 s, restarted into `app1` |
 | Uploaded image with no CAN bus rolls back | ✅ "not healthy after 300 s, restarting to roll back", back on `app0` |
-| Upload from the Settings page in a browser | ⏳ |
+| Upload from the Settings page in a browser (wrong-password check, white LED, restart into `app1`, back to `app0` after 5 min without a bus) | ✅ owner, 2026-10-29 |
 | An uploaded image marked valid on a live bus | ⏳ at the boat |
-| LED double purple blip | ⏳ not observed by Claude |
-| From the boat (home) network: `ais-gateway.local/setup`, password hidden, wrong password → 403 | ⏳ needs the network's password: for the owner, from a phone |
-| Phone opens the setup page by itself | ⏳ for the owner |
-| Button held 10 s → setup hotspot with a new password; short press nothing | ⏳ needs a hand on the button |
+| LED double purple blip on the setup hotspot | ✅ owner, 2026-10-29 |
+| From the home network: `ais-gateway.local/setup`, password hidden, wrong password refused, right one saves | ✅ owner, 2026-10-29 |
+| Phone joins the setup hotspot, the setup page opens by itself, lists the networks; saving joins the home network | ✅ owner, 2026-10-29 |
+| Button held 10 s → setup hotspot with a new password; short press nothing | ✅ owner, 2026-10-29 |
 | AIS bridging and CAN carry on through all of it | ⏳ at the boat, with a bus |
 
 ### What is on the device right now

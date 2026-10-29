@@ -394,15 +394,15 @@ WiFi is set up only through the setup hotspot (§7.3), which lists the networks 
 - No history rewrite for what's already committed.
 
 ### 7.9 Phase 3 acceptance
-- [ ] CI passes on a pull request; a build with `include/secrets.h` present fails the check.
+- [ ] CI passes on a pull request; a build with `include/secrets.h` present fails the check. *(CI passes on PRs #3-#6, 2026-10-29; the secrets.h failure path not exercised)*
 - [ ] A release tag publishes both binaries and the flasher.
 - [ ] Fresh board, full erase, install from the flasher: the device password shows in the flasher's console, and the open setup hotspot appears at once.
-- [ ] From a phone: the setup page opens by itself, lists the networks in range, and saving joins the network.
-- [ ] After setup, the fallback hotspot needs the device password.
-- [ ] Saving settings from the boat network without the password is refused; with it, it's saved.
+- [x] From a phone: the setup page opens by itself, lists the networks in range, and saving joins the network. *(2026-10-29, desk, home network)*
+- [x] After setup, the fallback hotspot needs the device password. *(2026-10-29, desk)*
+- [x] Saving settings from the boat network without the password is refused; with it, it's saved. *(2026-10-29, desk, home network)*
 - [ ] A unit running a `secrets.h` build, given a release build by OTA, keeps its network and passwords (§7.1).
-- [ ] Web upload of a `-update.bin` validates on a live bus, and an unhealthy one rolls back.
-- [ ] Bench reset: 10 s hold brings back the setup hotspot; a short press does nothing.
+- [ ] Web upload of a `-update.bin` validates on a live bus, and an unhealthy one rolls back. *(rollback ✅ 2026-10-29 on the desk, from curl and from the page; validation on a live bus at the boat)*
+- [x] Bench reset: 10 s hold brings back the setup hotspot; a short press does nothing. *(2026-10-29, desk)*
 - [ ] AIS bridging carries on through setup, scans and saves (except during a firmware upload).
 
 ---
