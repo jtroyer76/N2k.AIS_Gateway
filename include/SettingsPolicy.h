@@ -4,6 +4,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #define DEVICE_PASS_LEN     12  // made-up device password
@@ -40,6 +41,13 @@ inline bool validDevicePass(const char *s) {
   return n >= 8 && n <= 63;
 }
 
+struct GatewaySettings {
+  char ssid[33];        // blank: no network saved
+  char wifiPass[64];
+  char devicePass[64];  // hotspot (WPA2), OTA, saving settings
+  uint32_t aisBaud;
+};
+
 // Where a setting comes from at boot (7.1). A saved value wins, even when blank. Otherwise a
 // secrets.h value is used and saved, so a later release build keeps it. Otherwise the default.
 enum class SettingSource { Saved, Secrets, Default };
@@ -48,4 +56,44 @@ inline SettingSource settingSource(bool saved, bool inSecrets) {
   if (saved) return SettingSource::Saved;
   if (inSecrets) return SettingSource::Secrets;
   return SettingSource::Default;
+}
+
+// Compares a password without stopping at the first difference, so timing doesn't tell how much
+// of it was right (as Telltale).
+inline bool passwordMatches(const char *given, const char *expected) {
+  const size_t n = strlen(given), m = strlen(expected);
+  unsigned char diff = n != m;
+  for (size_t i = 0; i < m; i++) diff |= (unsigned char)(expected[i] ^ (i < n ? given[i] : 0));
+  return diff == 0;
+}
+
+// What the setup page sends (7.5). Blank wifiPass keeps the saved one for the same network;
+// blank newPass keeps the device password.
+struct SettingsForm {
+  const char *ssid;
+  const char *wifiPass;
+  uint32_t aisBaud;
+  const char *newPass;
+  const char *password;  // current device password; not needed through a hotspot
+};
+
+// Checks a save from the setup page. Returns nullptr and fills out, or the reason it's refused.
+// Through a hotspot no password is needed: joining the fallback hotspot already needed it, and
+// the setup hotspot only runs while nothing is set up (7.2).
+inline const char *applySettingsForm(const GatewaySettings &cur, const SettingsForm &f, bool viaHotspot,
+                                     GatewaySettings &out) {
+  if (!viaHotspot && !passwordMatches(f.password, cur.devicePass)) return "wrong device password";
+  if (!validSsid(f.ssid)) return "network name must be 1-32 characters";
+  const bool sameNetwork = strcmp(f.ssid, cur.ssid) == 0;
+  const char *wifiPass = (f.wifiPass[0] == '\0' && sameNetwork) ? cur.wifiPass : f.wifiPass;
+  if (!validWifiPass(wifiPass)) return "WiFi password must be blank (open network) or 8-63 characters";
+  if (!validBaud(f.aisBaud)) return "AIS baud must be 38400 or 4800";
+  const char *devicePass = f.newPass[0] ? f.newPass : cur.devicePass;
+  if (!validDevicePass(devicePass)) return "device password must be 8-63 characters";
+
+  snprintf(out.ssid, sizeof(out.ssid), "%s", f.ssid);
+  snprintf(out.wifiPass, sizeof(out.wifiPass), "%s", wifiPass);
+  snprintf(out.devicePass, sizeof(out.devicePass), "%s", devicePass);
+  out.aisBaud = f.aisBaud;
+  return nullptr;
 }

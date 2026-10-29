@@ -14,6 +14,31 @@ Start here when picking up the gateway in a new session. Spec: [SPEC.md](SPEC.md
 ### Settings on the device (phase 3, 2026-10-29)
 From the settings PR on, WiFi and the device password are saved on the device (SPEC §7.1). The first boot of a build with `secrets.h` saves its values, including `OTA_PASS` as the device password, so OTA keeps working. After that, **a new `secrets.h` no longer changes a saved network**: the setup page (§7.3/§7.5) does. Don't OTA a changed `secrets.h` to an installed unit expecting it to move networks.
 
+**Setup hotspot and setup page: desk test 2026-10-29** (Atom Lite on USB, no CAN bus, no AIS input; full erase, build without `secrets.h`; the PC's USB WiFi adapter as the "phone"):
+
+| Test | Result |
+|---|---|
+| Fresh board: scan, then the open setup hotspot at once (3.0 s), serial shows `Device password: ...` | ✅ |
+| `/` on the hotspot serves the setup page; `/api/setup` shows `via_hotspot: true` and the device password | ✅ |
+| Captive portal: `/generate_204`, `/hotspot-detect.html`, `/connecttest.txt` → 302 to `http://192.168.4.1/`; DNS for any name answers 192.168.4.1 | ✅ |
+| `/api/scan` lists the networks in range | ✅ |
+| Bad baud / short WiFi password / short device password → 400 with the reason | ✅ |
+| Save (network + new device password) → restarts, joins the saved network | ✅ (network not in range, so the next test followed) |
+| Fallback hotspot after 5 min is WPA2 with the device password (the open profile no longer joins) | ✅ at 300.7 s |
+| Through the fallback hotspot: `/api/setup` shows the password; saving needs none | ✅ |
+| Fallback hotspot's network list | ❌ then ✅: the first try logged "scan failed to start" (the station's own connect attempt blocks a scan). Fixed: the connect attempt is stopped for the scan and resumed after, and a scan that won't start is retried for 15 s. Then: "scan found 2 network(s)" at 303.5 s |
+| Firmware upload through the fallback hotspot, wrong password | ❌ then ✅: first try reset the gateway (task watchdog: reading the dropped body took > 5 s). Fixed by pausing the watchdog for every upload. Then 403 in 8.6 s, no reset |
+| Merged full image (release layout) written at `0x0` after a full erase, 115200 baud | ✅ booted, version from git, new device password, setup hotspot at 7.0 s |
+| Firmware upload, right password (`curl --data-binary`, 950 KB) | ✅ 200 in 11.9 s, restarted into `app1` |
+| Uploaded image with no CAN bus rolls back | ✅ "not healthy after 300 s, restarting to roll back", back on `app0` |
+| Upload from the Settings page in a browser (wrong-password check, white LED, restart into `app1`, back to `app0` after 5 min without a bus) | ✅ owner, 2026-10-29 |
+| An uploaded image marked valid on a live bus | ⏳ at the boat |
+| LED double purple blip on the setup hotspot | ✅ owner, 2026-10-29 |
+| From the home network: `ais-gateway.local/setup`, password hidden, wrong password refused, right one saves | ✅ owner, 2026-10-29 |
+| Phone joins the setup hotspot, the setup page opens by itself, lists the networks; saving joins the home network | ✅ owner, 2026-10-29 |
+| Button held 10 s → setup hotspot with a new password; short press nothing | ✅ owner, 2026-10-29 |
+| AIS bridging and CAN carry on through all of it | ⏳ at the boat, with a bus |
+
 ### What is on the device right now
 After the boat test (2026-10-27), the Atom Lite (CAN Unit attached, Tail485 **not** fitted) runs the build from the boat PC, updated by OTA and marked valid on the live bus:
 - `WIFI_SSID` = the boat network (case matters).

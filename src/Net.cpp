@@ -1,6 +1,7 @@
 #include "Net.h"
 
 #include <Arduino.h>
+#include <DNSServer.h>
 #include <WiFi.h>
 
 #include "Config.h"
@@ -10,16 +11,132 @@
 
 static const uint32_t kPollMs = 500;
 static const uint32_t kStationRetryMs = 60000;  // re-issue WiFi.begin() if still not connected
+static const uint32_t kScanTimeoutMs = 15000;   // give up waiting for a scan, start the hotspot anyway
+static const int kMaxFound = 20;
 
 static NetPolicy policy;
+static DNSServer dns;  // captive portal: every name answers the hotspot's address
 static char hotspotSsid[24];
 static uint32_t lastPoll = 0;
 static uint32_t lastBegin = 0;
 static bool stationEnabled = true;
 static bool wasConnected = false;
 
+static NetFound found[kMaxFound];
+static int foundCount = 0;
+static bool scanning = false;
+static uint32_t scanStarted = 0;
+static bool hotspotPending = false;  // waiting for the scan, then start the hotspot
+static uint32_t pendingSince = 0;
+static bool stationPaused = false;   // connect attempt stopped for a scan
+
 static void joinNetwork() {
   if (settingsHaveNetwork()) WiFi.begin(settings().ssid, settings().wifiPass);  // non-blocking
+}
+
+// Keeps each name once, at its strongest, sorted strongest first. Hidden networks are skipped.
+static void collectScan(int n) {
+  foundCount = 0;
+  for (int i = 0; i < n; i++) {
+    String ssid = WiFi.SSID(i);
+    if (ssid.length() == 0 || ssid.length() > 32) continue;
+    int8_t rssi = (int8_t)WiFi.RSSI(i);
+    bool open = WiFi.encryptionType(i) == WIFI_AUTH_OPEN;
+    int k = 0;
+    while (k < foundCount && strcmp(found[k].ssid, ssid.c_str()) != 0) k++;
+    if (k < foundCount) {
+      if (rssi > found[k].rssi) found[k].rssi = rssi;
+      continue;
+    }
+    if (foundCount == kMaxFound) continue;
+    snprintf(found[foundCount].ssid, sizeof(found[foundCount].ssid), "%s", ssid.c_str());
+    found[foundCount].rssi = rssi;
+    found[foundCount].open = open;
+    foundCount++;
+  }
+  for (int i = 1; i < foundCount; i++) {
+    NetFound f = found[i];
+    int j = i - 1;
+    while (j >= 0 && found[j].rssi < f.rssi) {
+      found[j + 1] = found[j];
+      j--;
+    }
+    found[j + 1] = f;
+  }
+}
+
+// The driver refuses a scan while the station is trying to connect (seen on the desk: "scan
+// failed to start" as the fallback hotspot came up). So stop the attempt for the scan and pick
+// it up again afterwards.
+static void pauseStation() {
+  stationPaused = true;
+  WiFi.setAutoReconnect(false);
+  WiFi.disconnect(false, false);
+}
+
+static void resumeStation(uint32_t now) {
+  if (!stationPaused) return;
+  stationPaused = false;
+  if (!stationEnabled) return;
+  WiFi.setAutoReconnect(true);
+  joinNetwork();
+  lastBegin = now;
+}
+
+static bool startScan(uint32_t now) {
+  if (scanning) return false;
+  if (settingsHaveNetwork() && WiFi.status() != WL_CONNECTED) pauseStation();
+  if (WiFi.scanNetworks(true) == WIFI_SCAN_FAILED) {  // async: poll with scanComplete()
+    resumeStation(now);
+    return false;
+  }
+  scanning = true;
+  scanStarted = now;
+  return true;
+}
+
+static void startHotspot() {
+  WiFi.mode(WIFI_AP_STA);
+  if (netSetupMode()) {
+    WiFi.softAP(hotspotSsid);  // open: nothing is set up yet (7.3)
+    logf(LogLevel::Warn, "WiFi: no network saved, open setup hotspot \"%s\" on %s", hotspotSsid,
+         WiFi.softAPIP().toString().c_str());
+  } else {
+    WiFi.softAP(hotspotSsid, settings().devicePass);  // WPA2 with the device password
+    logf(LogLevel::Warn, "WiFi: no boat network for %lu min, hotspot \"%s\" on %s", HOTSPOT_AFTER_MS / 60000,
+         hotspotSsid, WiFi.softAPIP().toString().c_str());
+  }
+  dns.start(53, "*", WiFi.softAPIP());
+}
+
+static void pollScan(uint32_t now) {
+  if (!scanning) return;
+  int n = WiFi.scanComplete();
+  if (n == WIFI_SCAN_RUNNING && now - scanStarted < kScanTimeoutMs) return;
+  scanning = false;
+  if (n >= 0) {
+    collectScan(n);
+    logf(LogLevel::Info, "WiFi: scan found %d network(s)", foundCount);
+  } else {
+    logf(LogLevel::Warn, "WiFi: scan failed (%d)", n);
+  }
+  WiFi.scanDelete();
+  resumeStation(now);
+  if (hotspotPending) {
+    hotspotPending = false;
+    startHotspot();
+  }
+}
+
+// A hotspot waits for a scan. If one won't start, try again each poll, and after kScanTimeoutMs
+// bring the hotspot up without the list.
+static void retryPendingScan(uint32_t now) {
+  if (!hotspotPending || scanning) return;
+  if (startScan(now)) return;
+  if (now - pendingSince < kScanTimeoutMs) return;
+  logf(LogLevel::Warn, "WiFi: scan failed to start, hotspot without the network list");
+  hotspotPending = false;
+  startHotspot();
 }
 
 void netBegin() {
@@ -29,7 +146,8 @@ void netBegin() {
 
   WiFi.setHostname(HOSTNAME);
   WiFi.mode(WIFI_STA);
-  WiFi.setAutoReconnect(true);
+  stationEnabled = settingsHaveNetwork();
+  WiFi.setAutoReconnect(stationEnabled);
   joinNetwork();
   lastBegin = millis();
   if (settingsHaveNetwork()) logf(LogLevel::Info, "WiFi: joining \"%s\" as %s", settings().ssid, HOSTNAME);
@@ -37,12 +155,16 @@ void netBegin() {
 }
 
 void netLoop(uint32_t now) {
+  if (policy.hotspotOn() && !hotspotPending) dns.processNextRequest();  // non-blocking
   if (now - lastPoll < kPollMs) return;
   lastPoll = now;
 
+  pollScan(now);
+  retryPendingScan(now);
+
   bool connected = WiFi.status() == WL_CONNECTED;
-  int clients = policy.hotspotOn() ? WiFi.softAPgetStationNum() : 0;
-  NetActions a = policy.step(now, connected, clients);
+  int clients = policy.hotspotOn() && !hotspotPending ? WiFi.softAPgetStationNum() : 0;
+  NetActions a = policy.step(now, connected, clients, settingsHaveNetwork());
 
   if (connected != wasConnected) {
     wasConnected = connected;
@@ -50,13 +172,15 @@ void netLoop(uint32_t now) {
     else logf(LogLevel::Warn, "WiFi: boat network lost");
   }
 
+  // Scan first, for the setup page's list: once a phone has joined, a scan would drop it.
   if (a.startHotspot) {
-    WiFi.mode(WIFI_AP_STA);
-    WiFi.softAP(hotspotSsid, settings().devicePass);  // WPA2 with the device password
-    logf(LogLevel::Warn, "WiFi: no boat network for %lu min, hotspot \"%s\" on %s",
-         HOTSPOT_AFTER_MS / 60000, hotspotSsid, WiFi.softAPIP().toString().c_str());
+    hotspotPending = true;
+    pendingSince = now;
+    startScan(now);  // if it won't start, retryPendingScan() tries again
   }
   if (a.stopHotspot) {
+    hotspotPending = false;
+    dns.stop();
     WiFi.softAPdisconnect(true);
     WiFi.mode(WIFI_STA);
     logf(LogLevel::Info, "WiFi: boat network back, hotspot off");
@@ -75,10 +199,20 @@ void netLoop(uint32_t now) {
       WiFi.disconnect(false, false);
       logf(LogLevel::Info, "WiFi: hotspot client connected, not searching for the boat network");
     }
-  } else if (stationEnabled && !connected && now - lastBegin >= kStationRetryMs) {
+  } else if (stationEnabled && !stationPaused && !connected && now - lastBegin >= kStationRetryMs) {
     joinNetwork();
     lastBegin = now;
   }
 }
 
-bool netHotspotOn() { return policy.hotspotOn(); }
+bool netHotspotOn() { return policy.hotspotOn() && !hotspotPending; }
+bool netSetupMode() { return !settingsHaveNetwork(); }
+
+int netFoundCount() { return foundCount; }
+const NetFound &netFound(int i) { return found[i]; }
+bool netScanning() { return scanning; }
+
+bool netStartScan() {
+  if (policy.hotspotOn()) return false;
+  return startScan(millis());
+}

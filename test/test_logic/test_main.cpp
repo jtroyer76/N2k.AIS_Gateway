@@ -10,6 +10,7 @@
 #include "RollbackPolicy.h"
 #include "RawRing.h"
 #include "BusHealth.h"
+#include "ButtonPolicy.h"
 
 void setUp() {}
 void tearDown() {}
@@ -24,6 +25,7 @@ static LedInputs healthy(uint32_t now) {
   in.booting = false;
   in.canRunning = true;
   in.hotspotOn = false;
+  in.setupMode = false;
   in.otaActive = false;
   return in;
 }
@@ -95,6 +97,29 @@ void test_led_hotspot_purple_blip_offset_from_amber() {
   TEST_ASSERT_EQUAL(LedColor::Off, ledPattern(in));
 }
 
+void test_led_fallback_hotspot_single_blip() {
+  LedInputs in = healthy(0);
+  in.hotspotOn = true;
+  in.now = 10000 + 2500 + LED_SETUP_GAP_MS + 10;
+  in.lastAisMs = in.now - 1000;
+  TEST_ASSERT_EQUAL(LedColor::Off, ledPattern(in));
+}
+
+void test_led_setup_hotspot_double_blip() {
+  LedInputs in = healthy(0);
+  in.hotspotOn = true;
+  in.setupMode = true;
+  const uint32_t half = 10000 + 2500;
+  in.now = half + 10; in.lastAisMs = in.now - 1000;
+  TEST_ASSERT_EQUAL(LedColor::Purple, ledPattern(in));
+  in.now = half + LED_BLIP_MS + 10; in.lastAisMs = in.now - 1000;
+  TEST_ASSERT_EQUAL(LedColor::Off, ledPattern(in));
+  in.now = half + LED_SETUP_GAP_MS + 10; in.lastAisMs = in.now - 1000;
+  TEST_ASSERT_EQUAL(LedColor::Purple, ledPattern(in));
+  in.now = half + LED_SETUP_GAP_MS + LED_BLIP_MS + 10; in.lastAisMs = in.now - 1000;
+  TEST_ASSERT_EQUAL(LedColor::Off, ledPattern(in));
+}
+
 void test_led_ais_timing_survives_millis_wraparound() {
   LedInputs in = healthy(0);
   in.lastAisMs = 0xFFFFFFF0;
@@ -153,6 +178,46 @@ void test_net_survives_millis_wraparound() {
   p.step(0xFFFFFFF0, true, 0);
   TEST_ASSERT_FALSE(p.step(0x10, false, 0).startHotspot);
   TEST_ASSERT_TRUE(p.step(0xFFFFFFF0 + 5 * kMin, false, 0).startHotspot);
+}
+
+void test_net_no_network_saved_setup_hotspot_at_once() {
+  NetPolicy p;
+  NetActions a = p.step(0, false, 0, false);
+  TEST_ASSERT_TRUE(a.startHotspot);
+  TEST_ASSERT_FALSE(a.stationEnabled);
+  TEST_ASSERT_TRUE(p.hotspotOn());
+  a = p.step(10 * kMin, false, 0, false);
+  TEST_ASSERT_FALSE(a.startHotspot);  // only once
+  TEST_ASSERT_FALSE(a.stopHotspot);   // stays up: no timeout
+  TEST_ASSERT_FALSE(a.stationEnabled);
+}
+
+//*****************************************************************************
+// Bench reset button
+
+void test_button_fires_after_10s_hold_once() {
+  ButtonPolicy b;
+  TEST_ASSERT_FALSE(b.step(1000, true));
+  TEST_ASSERT_FALSE(b.step(1000 + RESET_HOLD_MS - 1, true));
+  TEST_ASSERT_TRUE(b.step(1000 + RESET_HOLD_MS, true));
+  TEST_ASSERT_FALSE(b.step(1000 + RESET_HOLD_MS + 20, true));
+}
+
+void test_button_short_press_does_nothing() {
+  ButtonPolicy b;
+  for (uint32_t t = 0; t < 2000; t += 20) TEST_ASSERT_FALSE(b.step(t, true));
+  TEST_ASSERT_FALSE(b.step(2000, false));
+  TEST_ASSERT_FALSE(b.step(2020, true));
+  TEST_ASSERT_FALSE(b.step(2020 + RESET_HOLD_MS - 1, true));  // timing restarted at 2020
+}
+
+void test_button_released_and_held_again_fires_again() {
+  ButtonPolicy b;
+  b.step(0, true);
+  TEST_ASSERT_TRUE(b.step(RESET_HOLD_MS, true));
+  b.step(RESET_HOLD_MS + 20, false);
+  b.step(RESET_HOLD_MS + 40, true);
+  TEST_ASSERT_TRUE(b.step(2 * RESET_HOLD_MS + 40, true));
 }
 
 //*****************************************************************************
@@ -264,6 +329,8 @@ int main(int, char **) {
   RUN_TEST(test_led_no_ais_amber_blip_every_5s);
   RUN_TEST(test_led_no_ais_since_boot_counts_after_5_minutes);
   RUN_TEST(test_led_hotspot_purple_blip_offset_from_amber);
+  RUN_TEST(test_led_fallback_hotspot_single_blip);
+  RUN_TEST(test_led_setup_hotspot_double_blip);
   RUN_TEST(test_led_ais_timing_survives_millis_wraparound);
   RUN_TEST(test_net_tries_boat_network_at_boot);
   RUN_TEST(test_net_hotspot_after_5_minutes_without_network);
@@ -271,6 +338,10 @@ int main(int, char **) {
   RUN_TEST(test_net_no_station_search_while_hotspot_client_connected);
   RUN_TEST(test_net_hotspot_stops_when_network_returns);
   RUN_TEST(test_net_survives_millis_wraparound);
+  RUN_TEST(test_net_no_network_saved_setup_hotspot_at_once);
+  RUN_TEST(test_button_fires_after_10s_hold_once);
+  RUN_TEST(test_button_short_press_does_nothing);
+  RUN_TEST(test_button_released_and_held_again_fires_again);
   RUN_TEST(test_rollback_nothing_when_image_not_pending);
   RUN_TEST(test_rollback_marks_valid_when_healthy_after_60s);
   RUN_TEST(test_rollback_waits_while_unhealthy);

@@ -343,10 +343,14 @@ Uses the core's `WebServer` (synchronous; every handler must be fast, and there'
 - LED: the purple hotspot blip, plus a distinct pattern for "not set up" (pattern to choose in `include/LedPattern.h`).
 - AIS bridging runs normally while unconfigured: WiFi state never affects bridging.
 
+*Implemented 2026-10-29* in `src/Net.cpp` (decisions in `include/NetPolicy.h`, host-tested). The scan is asynchronous: a hotspot (setup or fallback) waits for it, or for 15 s, then comes up; the list keeps each name once, at its strongest, up to 20, strongest first, without hidden networks. Captive DNS runs on both hotspots (Arduino `DNSServer`). LED: the setup hotspot blips purple twice, 300 ms apart (`LED_SETUP_GAP_MS`); the fallback hotspot once. Not run on hardware yet.
+
 ### 7.4 Bench reset (button)
 - Hold the button for **10 s**: clear WiFi and the device password, then restart into the setup hotspot (a new password is made up). The N2k node address and the AIS baud are kept.
 - For the bench only: the button can't be reached once the unit is enclosed (§3). Recovery for an installed unit with a lost password: open the enclosure, or USB.
 - A short press does nothing, so a knock can't reset it.
+
+*Implemented 2026-10-29* in `src/Button.cpp` (GPIO39, active low, polled every 20 ms; decision in `include/ButtonPolicy.h`, host-tested). Any release restarts the 10 s count. Active low as in M5Stack's own Atom library (`Button(39, true, 10)`, invert = pressed when low).
 
 ### 7.5 Setup page and web API
 On the phase 2 web server. The status/console page gets a Settings link.
@@ -362,6 +366,14 @@ On the phase 2 web server. The status/console page gets a Settings link.
 - ArduinoOTA from PlatformIO stays, with the device password.
 - `POST /api/restart` stays unauthenticated (phase 2 decision): it can't change anything.
 
+*Implemented 2026-10-29* in `src/Web.cpp` and `src/SetupPage.h`; the save rules are `applySettingsForm()` in `include/SettingsPolicy.h` (host tests in `test/test_settings`). Two endpoints more than the table:
+- `GET /api/setup`: version, hostname, `setup` (no network saved), `via_hotspot`, saved network name, AIS baud, and the device password only when `via_hotspot`.
+- `POST /api/scan`: starts a scan from the boat network (the page's Scan button). Refused while a hotspot is on.
+
+"Through a hotspot" means the hotspot is up and the request arrived on its address (`192.168.4.1`). A wrong device password gives 403, a bad value 400, both with `{"error": "..."}`. A network name that differs only in case is a different network, so the saved WiFi password isn't carried over. `/api/status` gains `wifi.setup`.
+
+`POST /ota` (*implemented 2026-10-29*, `src/Web.cpp` + `src/Ota.cpp`): body = the app image, header `X-OTA-Password` = the device password (as Telltale), compared in constant time (`passwordMatches()`). The core's WebServer hands a non-form body to the handler in 1436-byte chunks, written with `Update`. A wrong password still has the whole body read and dropped, then 403. **The loop watchdog is paused for every upload, authorised or not:** the desk test found a wrong-password upload reset the gateway (task watchdog), because reading ~950 KB took longer than 5 s. So anyone on the boat network can pause bridging for as long as an upload lasts; the network is trusted (§6.2). The Settings page has a Firmware update card; on a hotspot the password is filled in.
+
 ### 7.6 Improv over serial: not in phase 3
 WiFi is set up only through the setup hotspot (§7.3), which lists the networks in range and works without USB. Decided 2026-10-29: one setup path for now. Improv in the web flasher is in the backlog (§9).
 
@@ -375,20 +387,22 @@ WiFi is set up only through the setup hotspot (§7.3), which lists the networks 
 - The flasher works from Chrome or Edge over USB. Install **before** fitting the Tail485, while USB can be reached. Installing without erasing keeps the settings.
 - The README links the flasher URL directly, and the repo's GitHub "Website" field points to it.
 
+*Implemented 2026-10-29.* CI since PR #3 (host tests link `-static-libstdc++ -static-libgcc`: `-Wl,-static` failed on Linux for want of a static `libgcc_s`). `FW_VERSION`: `scripts/version.py` (PlatformIO pre-script) runs `git describe --tags --always --dirty` and drops a leading `v`; `include/Version.h` keeps `"unknown"` for the host tests. Flash layout, from the Arduino core's `platformio-build.py` for the ESP32: bootloader `0x1000`, partition table `0x8000`, `boot_app0.bin` (OTA data, from the framework's `tools/partitions/`) `0xe000`, app `0x10000`; 4 MB, DIO, 40 MHz (board `m5stack-atom`). The manifest (`site/manifest.template.json`) and the `merge_bin` in `release.yml` use the same layout. ESP Web Tools 10.4.0 (as Telltale). Desk check: the merged image, built locally the same way and written at `0x0` after a full erase, booted into setup with its git version. Not yet run on GitHub: the first `v*` tag is the first release.
+
 ### 7.8 Generic docs
 - README, SPEC and TESTING describe a general product. Boat-specific details (network names, addresses, computers, people) don't go in this repo; "the test boat" is fine.
 - No history rewrite for what's already committed.
 
 ### 7.9 Phase 3 acceptance
-- [ ] CI passes on a pull request; a build with `include/secrets.h` present fails the check.
+- [ ] CI passes on a pull request; a build with `include/secrets.h` present fails the check. *(CI passes on PRs #3-#6, 2026-10-29; the secrets.h failure path not exercised)*
 - [ ] A release tag publishes both binaries and the flasher.
 - [ ] Fresh board, full erase, install from the flasher: the device password shows in the flasher's console, and the open setup hotspot appears at once.
-- [ ] From a phone: the setup page opens by itself, lists the networks in range, and saving joins the network.
-- [ ] After setup, the fallback hotspot needs the device password.
-- [ ] Saving settings from the boat network without the password is refused; with it, it's saved.
+- [x] From a phone: the setup page opens by itself, lists the networks in range, and saving joins the network. *(2026-10-29, desk, home network)*
+- [x] After setup, the fallback hotspot needs the device password. *(2026-10-29, desk)*
+- [x] Saving settings from the boat network without the password is refused; with it, it's saved. *(2026-10-29, desk, home network)*
 - [ ] A unit running a `secrets.h` build, given a release build by OTA, keeps its network and passwords (§7.1).
-- [ ] Web upload of a `-update.bin` validates on a live bus, and an unhealthy one rolls back.
-- [ ] Bench reset: 10 s hold brings back the setup hotspot; a short press does nothing.
+- [ ] Web upload of a `-update.bin` validates on a live bus, and an unhealthy one rolls back. *(rollback ✅ 2026-10-29 on the desk, from curl and from the page; validation on a live bus at the boat)*
+- [x] Bench reset: 10 s hold brings back the setup hotspot; a short press does nothing. *(2026-10-29, desk)*
 - [ ] AIS bridging carries on through setup, scans and saves (except during a firmware upload).
 
 ---

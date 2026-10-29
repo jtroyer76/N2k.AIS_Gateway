@@ -36,7 +36,7 @@ summary{cursor:pointer;font-weight:600}
 #raw{margin-top:8px;max-height:40vh}
 #err{display:none;padding:8px 16px;background:var(--bad);color:#fff}
 </style></head><body>
-<header><h1>AIS Gateway</h1><small id="ver"></small><button class="danger" id="rst">Restart</button></header>
+<header><h1>AIS Gateway</h1><small id="ver"></small><a href="/setup" style="color:inherit">Settings</a><button class="danger" id="rst">Restart</button></header>
 <div id="err">Can't reach the gateway. Retrying&hellip;</div>
 <main>
 <div class="tiles">

@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <ArduinoOTA.h>
+#include <Update.h>
 #include <esp_ota_ops.h>
 
 #include "Config.h"
@@ -79,3 +80,43 @@ void otaLoop(uint32_t now, bool healthy) {
 }
 
 bool otaActive() { return active; }
+
+void otaWatchdogPause() { pauseWdt(); }
+void otaWatchdogResume() { resumeWdt(); }
+
+bool otaUploadBegin(size_t size) {
+  if (!Update.begin(size)) {
+    logf(LogLevel::Error, "OTA: web upload refused: %s", Update.errorString());
+    return false;
+  }
+  active = true;
+  logf(LogLevel::Info, "OTA: web upload started (%u bytes)", (unsigned)size);
+  pauseWdt();  // the upload blocks the loop
+  ledShowNow(LedColor::White);
+  return true;
+}
+
+bool otaUploadWrite(uint8_t *data, size_t len) {
+  if (Update.write(data, len) == len) return true;
+  logf(LogLevel::Error, "OTA: web upload write failed: %s", Update.errorString());
+  return false;
+}
+
+bool otaUploadEnd() {
+  if (!Update.end()) {
+    logf(LogLevel::Error, "OTA: web upload failed: %s", Update.errorString());
+    active = false;
+    resumeWdt();
+    return false;
+  }
+  logf(LogLevel::Info, "OTA: web upload complete, restarting");
+  resumeWdt();
+  return true;
+}
+
+void otaUploadAbort() {
+  Update.abort();
+  logf(LogLevel::Error, "OTA: web upload aborted");
+  active = false;
+  resumeWdt();
+}

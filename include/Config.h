@@ -22,6 +22,7 @@
 #define RS485_RX_PIN        26
 #define RS485_TX_PIN        32
 #define LED_PIN             27
+#define BUTTON_PIN          39      // active low; bench settings reset only (SPEC 7.4)
 
 // Timeouts
 #define NO_AIS_MS           (5UL * 60 * 1000)  // LED "no AIS" after this long without a sentence
