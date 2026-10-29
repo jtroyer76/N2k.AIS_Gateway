@@ -18,4 +18,6 @@ This is a public, general product: no boat names, hostnames, network names, addr
 ## Commands
 - `pio run`: build. `pio run -t upload`: USB flash. `pio device monitor`: serial log (115200).
 - `pio run -e m5stack-atom-ota -t upload`: OTA (needs `AIS_OTA_PASS`). If it fails after authenticating, see TESTING.md "OTA from a PC with several network adapters".
-- `pio test -e native`: host tests (needs a host gcc/g++).
+- `pio test -e native`: host tests (needs a host gcc/g++). Run them before `pio run`: a changed `platformio.ini` makes the next run wipe `.pio/build`.
+- Release: push a `v*` tag on `main`; `release.yml` builds, publishes the release and the web flasher. The version is the tag (`scripts/version.py`). Tagging is the owner's call.
+- Changes go through PRs that pass CI (`ci.yml`); Conventional Commit titles.

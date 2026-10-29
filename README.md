@@ -21,6 +21,15 @@ Wiring and installation: SPEC §3. Once the Tail485 is fitted and the unit insta
 - Type 19: Class B Extended Position Report (PGN 129040)
 - Type 24A/B: Class B Static Data (PGN 129809, 129810)
 
+## Installing
+
+**Web flasher: https://jtroyer76.github.io/N2k.AIS_Gateway/**. It installs the latest release from Chrome or Edge over USB, with no account or tools needed. Install before fitting the Tail485, while the USB port can be reached. Releases are listed under [Releases](https://github.com/jtroyer76/N2k.AIS_Gateway/releases), each with:
+
+- `ais-gateway-<ver>-full.bin`: everything, for esptool at `0x0` on a new board (`esptool.py --chip esp32 write_flash 0x0 ais-gateway-<ver>-full.bin`)
+- `ais-gateway-<ver>-update.bin`: the app alone, for updates over WiFi (Settings → Firmware update)
+
+A release is built by `.github/workflows/release.yml` when a `v*` tag is pushed; the firmware's version is the tag.
+
 ## Setup
 
 WiFi, the device password and the AIS baud rate (38400 or 4800) are saved on the device, so no credentials are compiled in.

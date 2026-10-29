@@ -387,20 +387,22 @@ WiFi is set up only through the setup hotspot (§7.3), which lists the networks 
 - The flasher works from Chrome or Edge over USB. Install **before** fitting the Tail485, while USB can be reached. Installing without erasing keeps the settings.
 - The README links the flasher URL directly, and the repo's GitHub "Website" field points to it.
 
+*Implemented 2026-10-29.* CI since PR #3 (host tests link `-static-libstdc++ -static-libgcc`: `-Wl,-static` failed on Linux for want of a static `libgcc_s`). `FW_VERSION`: `scripts/version.py` (PlatformIO pre-script) runs `git describe --tags --always --dirty` and drops a leading `v`; `include/Version.h` keeps `"unknown"` for the host tests. Flash layout, from the Arduino core's `platformio-build.py` for the ESP32: bootloader `0x1000`, partition table `0x8000`, `boot_app0.bin` (OTA data, from the framework's `tools/partitions/`) `0xe000`, app `0x10000`; 4 MB, DIO, 40 MHz (board `m5stack-atom`). The manifest (`site/manifest.template.json`) and the `merge_bin` in `release.yml` use the same layout. ESP Web Tools 10.4.0 (as Telltale). Desk check: the merged image, built locally the same way and written at `0x0` after a full erase, booted into setup with its git version. Not yet run on GitHub: the first `v*` tag is the first release.
+
 ### 7.8 Generic docs
 - README, SPEC and TESTING describe a general product. Boat-specific details (network names, addresses, computers, people) don't go in this repo; "the test boat" is fine.
 - No history rewrite for what's already committed.
 
 ### 7.9 Phase 3 acceptance
-- [ ] CI passes on a pull request; a build with `include/secrets.h` present fails the check.
+- [ ] CI passes on a pull request; a build with `include/secrets.h` present fails the check. *(CI passes on PRs #3-#6, 2026-10-29; the secrets.h failure path not exercised)*
 - [ ] A release tag publishes both binaries and the flasher.
 - [ ] Fresh board, full erase, install from the flasher: the device password shows in the flasher's console, and the open setup hotspot appears at once.
-- [ ] From a phone: the setup page opens by itself, lists the networks in range, and saving joins the network.
-- [ ] After setup, the fallback hotspot needs the device password.
-- [ ] Saving settings from the boat network without the password is refused; with it, it's saved.
+- [x] From a phone: the setup page opens by itself, lists the networks in range, and saving joins the network. *(2026-10-29, desk, home network)*
+- [x] After setup, the fallback hotspot needs the device password. *(2026-10-29, desk)*
+- [x] Saving settings from the boat network without the password is refused; with it, it's saved. *(2026-10-29, desk, home network)*
 - [ ] A unit running a `secrets.h` build, given a release build by OTA, keeps its network and passwords (§7.1).
-- [ ] Web upload of a `-update.bin` validates on a live bus, and an unhealthy one rolls back.
-- [ ] Bench reset: 10 s hold brings back the setup hotspot; a short press does nothing.
+- [ ] Web upload of a `-update.bin` validates on a live bus, and an unhealthy one rolls back. *(rollback ✅ 2026-10-29 on the desk, from curl and from the page; validation on a live bus at the boat)*
+- [x] Bench reset: 10 s hold brings back the setup hotspot; a short press does nothing. *(2026-10-29, desk)*
 - [ ] AIS bridging carries on through setup, scans and saves (except during a firmware upload).
 
 ---
