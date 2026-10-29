@@ -27,6 +27,8 @@ static int foundCount = 0;
 static bool scanning = false;
 static uint32_t scanStarted = 0;
 static bool hotspotPending = false;  // waiting for the scan, then start the hotspot
+static uint32_t pendingSince = 0;
+static bool stationPaused = false;   // connect attempt stopped for a scan
 
 static void joinNetwork() {
   if (settingsHaveNetwork()) WiFi.begin(settings().ssid, settings().wifiPass);  // non-blocking
@@ -63,10 +65,29 @@ static void collectScan(int n) {
   }
 }
 
+// The driver refuses a scan while the station is trying to connect (seen on the desk: "scan
+// failed to start" as the fallback hotspot came up). So stop the attempt for the scan and pick
+// it up again afterwards.
+static void pauseStation() {
+  stationPaused = true;
+  WiFi.setAutoReconnect(false);
+  WiFi.disconnect(false, false);
+}
+
+static void resumeStation(uint32_t now) {
+  if (!stationPaused) return;
+  stationPaused = false;
+  if (!stationEnabled) return;
+  WiFi.setAutoReconnect(true);
+  joinNetwork();
+  lastBegin = now;
+}
+
 static bool startScan(uint32_t now) {
   if (scanning) return false;
+  if (settingsHaveNetwork() && WiFi.status() != WL_CONNECTED) pauseStation();
   if (WiFi.scanNetworks(true) == WIFI_SCAN_FAILED) {  // async: poll with scanComplete()
-    logf(LogLevel::Warn, "WiFi: scan failed to start");
+    resumeStation(now);
     return false;
   }
   scanning = true;
@@ -100,10 +121,22 @@ static void pollScan(uint32_t now) {
     logf(LogLevel::Warn, "WiFi: scan failed (%d)", n);
   }
   WiFi.scanDelete();
+  resumeStation(now);
   if (hotspotPending) {
     hotspotPending = false;
     startHotspot();
   }
+}
+
+// A hotspot waits for a scan. If one won't start, try again each poll, and after kScanTimeoutMs
+// bring the hotspot up without the list.
+static void retryPendingScan(uint32_t now) {
+  if (!hotspotPending || scanning) return;
+  if (startScan(now)) return;
+  if (now - pendingSince < kScanTimeoutMs) return;
+  logf(LogLevel::Warn, "WiFi: scan failed to start, hotspot without the network list");
+  hotspotPending = false;
+  startHotspot();
 }
 
 void netBegin() {
@@ -127,6 +160,7 @@ void netLoop(uint32_t now) {
   lastPoll = now;
 
   pollScan(now);
+  retryPendingScan(now);
 
   bool connected = WiFi.status() == WL_CONNECTED;
   int clients = policy.hotspotOn() && !hotspotPending ? WiFi.softAPgetStationNum() : 0;
@@ -140,8 +174,9 @@ void netLoop(uint32_t now) {
 
   // Scan first, for the setup page's list: once a phone has joined, a scan would drop it.
   if (a.startHotspot) {
-    if (startScan(now) || scanning) hotspotPending = true;
-    else startHotspot();
+    hotspotPending = true;
+    pendingSince = now;
+    startScan(now);  // if it won't start, retryPendingScan() tries again
   }
   if (a.stopHotspot) {
     hotspotPending = false;
@@ -164,7 +199,7 @@ void netLoop(uint32_t now) {
       WiFi.disconnect(false, false);
       logf(LogLevel::Info, "WiFi: hotspot client connected, not searching for the boat network");
     }
-  } else if (stationEnabled && !connected && now - lastBegin >= kStationRetryMs) {
+  } else if (stationEnabled && !stationPaused && !connected && now - lastBegin >= kStationRetryMs) {
     joinNetwork();
     lastBegin = now;
   }

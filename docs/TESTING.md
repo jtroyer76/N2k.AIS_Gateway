@@ -14,13 +14,24 @@ Start here when picking up the gateway in a new session. Spec: [SPEC.md](SPEC.md
 ### Settings on the device (phase 3, 2026-10-29)
 From the settings PR on, WiFi and the device password are saved on the device (SPEC §7.1). The first boot of a build with `secrets.h` saves its values, including `OTA_PASS` as the device password, so OTA keeps working. After that, **a new `secrets.h` no longer changes a saved network**: the setup page (§7.3/§7.5) does. Don't OTA a changed `secrets.h` to an installed unit expecting it to move networks.
 
-**Setup hotspot, setup page and bench reset: built and host-tested 2026-10-29, not yet run on hardware.** Desk test, USB flash, no `secrets.h` (or a full erase first: `pio run -e m5stack-atom -t erase`):
-- serial shows `Device password: ...` and "open setup hotspot"; the LED blips purple twice every 5 s
-- a phone joining `AIS-Gateway-XXXX` gets the setup page by itself (captive portal); the network list is filled; the page shows the device password
-- save the home network: the gateway restarts and joins it; `http://ais-gateway.local/setup` loads, the password isn't shown, saving with a wrong password is refused (403), with the right one it saves
-- the `WIFI_SSID_OVERRIDE` test build brings up the fallback hotspot after 5 minutes: WPA2 with the device password, `/setup` saves without the password
-- hold the button 10 s: settings cleared, setup hotspot back with a new password; a short press does nothing
-- AIS bridging and the CAN log carry on through all of it (with a bus, at the boat)
+**Setup hotspot and setup page: desk test 2026-10-29** (Atom Lite on USB, no CAN bus, no AIS input; full erase, build without `secrets.h`; the PC's USB WiFi adapter as the "phone"):
+
+| Test | Result |
+|---|---|
+| Fresh board: scan, then the open setup hotspot at once (3.0 s), serial shows `Device password: ...` | ✅ |
+| `/` on the hotspot serves the setup page; `/api/setup` shows `via_hotspot: true` and the device password | ✅ |
+| Captive portal: `/generate_204`, `/hotspot-detect.html`, `/connecttest.txt` → 302 to `http://192.168.4.1/`; DNS for any name answers 192.168.4.1 | ✅ |
+| `/api/scan` lists the networks in range | ✅ |
+| Bad baud / short WiFi password / short device password → 400 with the reason | ✅ |
+| Save (network + new device password) → restarts, joins the saved network | ✅ (network not in range, so the next test followed) |
+| Fallback hotspot after 5 min is WPA2 with the device password (the open profile no longer joins) | ✅ at 300.7 s |
+| Through the fallback hotspot: `/api/setup` shows the password; saving needs none | ✅ |
+| Fallback hotspot's network list | ❌ then ✅: the first try logged "scan failed to start" (the station's own connect attempt blocks a scan). Fixed: the connect attempt is stopped for the scan and resumed after, and a scan that won't start is retried for 15 s. Then: "scan found 2 network(s)" at 303.5 s |
+| LED double purple blip | ⏳ not observed by Claude |
+| From the boat (home) network: `ais-gateway.local/setup`, password hidden, wrong password → 403 | ⏳ needs the network's password: for the owner, from a phone |
+| Phone opens the setup page by itself | ⏳ for the owner |
+| Button held 10 s → setup hotspot with a new password; short press nothing | ⏳ needs a hand on the button |
+| AIS bridging and CAN carry on through all of it | ⏳ at the boat, with a bus |
 
 ### What is on the device right now
 After the boat test (2026-10-27), the Atom Lite (CAN Unit attached, Tail485 **not** fitted) runs the build from the boat PC, updated by OTA and marked valid on the live bus:
