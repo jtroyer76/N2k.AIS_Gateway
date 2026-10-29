@@ -387,6 +387,8 @@ WiFi is set up only through the setup hotspot (§7.3), which lists the networks 
 - The flasher works from Chrome or Edge over USB. Install **before** fitting the Tail485, while USB can be reached. Installing without erasing keeps the settings.
 - The README links the flasher URL directly, and the repo's GitHub "Website" field points to it.
 
+*Implemented 2026-10-29.* CI since PR #3 (host tests link `-static-libstdc++ -static-libgcc`: `-Wl,-static` failed on Linux for want of a static `libgcc_s`). `FW_VERSION`: `scripts/version.py` (PlatformIO pre-script) runs `git describe --tags --always --dirty` and drops a leading `v`; `include/Version.h` keeps `"unknown"` for the host tests. Flash layout, from the Arduino core's `platformio-build.py` for the ESP32: bootloader `0x1000`, partition table `0x8000`, `boot_app0.bin` (OTA data, from the framework's `tools/partitions/`) `0xe000`, app `0x10000`; 4 MB, DIO, 40 MHz (board `m5stack-atom`). The manifest (`site/manifest.template.json`) and the `merge_bin` in `release.yml` use the same layout. ESP Web Tools 10.4.0 (as Telltale). Desk check: the merged image, built locally the same way and written at `0x0` after a full erase, booted into setup with its git version. Not yet run on GitHub: the first `v*` tag is the first release.
+
 ### 7.8 Generic docs
 - README, SPEC and TESTING describe a general product. Boat-specific details (network names, addresses, computers, people) don't go in this repo; "the test boat" is fine.
 - No history rewrite for what's already committed.
