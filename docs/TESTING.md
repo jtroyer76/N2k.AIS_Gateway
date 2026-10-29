@@ -36,6 +36,18 @@ Bugs found and fixed during the desk test:
 - **Rollback health check fooled by a floating bus.** With nothing on the CAN Unit, the controller sits at TEC 0 / REC 135 (error passive). The old TEC-only check marked the image valid. Healthy now also needs REC < 96 and traffic from another N2k node (`include/BusHealth.h`, SPEC §5.11).
 - **Loop watchdog resumed twice** when ArduinoOTA reported two errors for one failed upload. Pause and resume are now idempotent.
 
+### Hotspot test build
+To bring up the hotspot at home without editing `secrets.h`, build with a network name that doesn't exist. Flash it over USB, wait 5 minutes, then flash the normal build back.
+
+```
+# PowerShell
+$env:PLATFORMIO_BUILD_FLAGS='-DWIFI_SSID_OVERRIDE=\"no-such-network\"'
+pio run -e m5stack-atom -t upload
+Remove-Item Env:PLATFORMIO_BUILD_FLAGS
+```
+
+Windows' `netsh wlan` needs Location services turned on, so join the hotspot from the taskbar WiFi menu instead.
+
 ### OTA from a PC with several network adapters
 If espota authenticates but then says "No response from device", the device couldn't connect back to the PC. Build, then run espota with the PC's own address on that network (`-I`):
 
@@ -122,7 +134,10 @@ Boat computer: **nootka-pc** (the boat's permanent Windows 11 PC, not a laptop),
   - `POST /api/restart`: back within 10 s, reset reason "software restart", the log reports `reset`
   - 60 s of polling at the page's rate (log every 1 s, status every 2 s): no failed requests; free heap 180–181 KB, compared with about 220–227 KB in phase 1; lowest ever 155 KB
   - the page in a browser and on a phone in dark mode, and on the phone in light mode: checked by Jess, looks good
-  - not yet checked: `more` paging past 40 lines, the hotspot address, the 7-day soak, OTA validation on the boat
+  - **through the hotspot** (2026-10-28): a test build aimed at a missing network (see "Hotspot test build" below) brought the hotspot up. With the PC's USB WiFi adapter joined (PC at 192.168.4.2), `http://192.168.4.1/` served the page, status (`hotspot: true`, 1 client) and log. The log showed "hotspot client connected, not searching for the boat network".
+  - **`more` paging:** after about 5 h of uptime the buffer had wrapped. A full read took 4 requests (40 + 40 + 40 + 30 lines = the 150 kept), and the 155 dropped lines were reported as `lost`.
+  - free heap in the stats lines stayed at 181,660 bytes for the whole 5 h (page not open most of that time)
+  - not yet checked: the hotspot address, the 7-day soak, OTA validation on the boat
 
   To test the rest, open `http://ais-gateway.local/` (or `http://192.168.4.1/` through the hotspot). Check:
   - the tiles refresh and the console fills, including the boot lines

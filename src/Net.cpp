@@ -13,6 +13,13 @@
 #error "Copy include/secrets.example.h to include/secrets.h and fill it in"
 #endif
 
+// Test builds only: build with -DWIFI_SSID_OVERRIDE=\"name\" to aim at a network that isn't
+// there, which brings up the fallback hotspot without touching secrets.h (TESTING.md).
+#ifdef WIFI_SSID_OVERRIDE
+#undef WIFI_SSID
+#define WIFI_SSID WIFI_SSID_OVERRIDE
+#endif
+
 static const uint32_t kPollMs = 500;
 static const uint32_t kStationRetryMs = 60000;  // re-issue WiFi.begin() if still not connected
 
