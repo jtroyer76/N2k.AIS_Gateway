@@ -13,6 +13,7 @@
 #include "N2kNode.h"
 #include "Net.h"
 #include "Settings.h"
+#include "SetupPage.h"
 #include "Stats.h"
 #include "SysInfo.h"
 #include "Version.h"
@@ -27,12 +28,117 @@ static bool restartPending = false;
 
 // send_P writes straight from the buffer (PROGMEM is ordinary memory on the ESP32), avoiding the
 // String copy that send() makes.
-static void sendJson(const JsonOut &j) {
+static void sendJson(const JsonOut &j, int code = 200) {
   server.sendHeader("Cache-Control", "no-store");
-  server.send_P(200, "application/json", out, j.length());
+  server.send_P(code, "application/json", out, j.length());
 }
 
+static void sendError(int code, const char *message) {
+  JsonOut j(out, sizeof(out));
+  j.raw("{\"error\":");
+  j.str(message);
+  j.raw("}");
+  sendJson(j, code);
+}
+
+static void scheduleRestart() {
+  restartAt = millis() + kRestartDelayMs;
+  restartPending = true;
+}
+
+// The request came in through one of the gateway's hotspots, not the boat network (SPEC 7.2).
+static bool viaHotspot() { return netHotspotOn() && server.client().localIP() == WiFi.softAPIP(); }
+
 static void handlePage() { server.send_P(200, "text/html", kWebPage, strlen_P(kWebPage)); }
+
+static void handleSetupPage() { server.send_P(200, "text/html", kSetupPage, strlen_P(kSetupPage)); }
+
+// With no network saved, the setup page is the only page that makes sense.
+static void handleRoot() {
+  if (netSetupMode()) handleSetupPage();
+  else handlePage();
+}
+
+// The device password is only sent through a hotspot (SPEC 7.2).
+static void handleSetupGet() {
+  const bool hotspot = viaHotspot();
+  JsonOut j(out, sizeof(out));
+  j.raw("{\"version\":");
+  j.str(FW_VERSION);
+  j.raw(",\"hostname\":");
+  j.str(HOSTNAME);
+  j.raw(",\"setup\":");
+  j.boolean(netSetupMode());
+  j.raw(",\"via_hotspot\":");
+  j.boolean(hotspot);
+  j.raw(",\"ssid\":");
+  j.str(settings().ssid);
+  j.raw(",\"ais_baud\":");
+  j.num(settings().aisBaud);
+  if (hotspot) {
+    j.raw(",\"device_pass\":");
+    j.str(settings().devicePass);
+  }
+  j.raw("}");
+  sendJson(j);
+}
+
+static void handleScanGet() {
+  JsonOut j(out, sizeof(out));
+  j.raw("{\"scanning\":");
+  j.boolean(netScanning());
+  j.raw(",\"networks\":[");
+  for (int i = 0; i < netFoundCount(); i++) {
+    const NetFound &f = netFound(i);
+    if (i) j.raw(",");
+    j.raw("[");
+    j.str(f.ssid);
+    j.raw(",");
+    j.num((int32_t)f.rssi);
+    j.raw(",");
+    j.boolean(f.open);
+    j.raw("]");
+  }
+  j.raw("]}");
+  sendJson(j);
+}
+
+static void handleScanPost() {
+  JsonOut j(out, sizeof(out));
+  j.raw("{\"started\":");
+  j.boolean(netStartScan());
+  j.raw("}");
+  sendJson(j);
+}
+
+static void handleSettingsPost() {
+  const String ssid = server.arg("ssid"), wifiPass = server.arg("wifi_pass"), newPass = server.arg("new_pass"),
+               password = server.arg("password");
+  SettingsForm form = {ssid.c_str(), wifiPass.c_str(), (uint32_t)strtoul(server.arg("ais_baud").c_str(), nullptr, 10),
+                       newPass.c_str(), password.c_str()};
+  GatewaySettings next = settings();
+  const char *error = applySettingsForm(settings(), form, viaHotspot(), next);
+  if (error) {
+    logf(LogLevel::Warn, "Web: settings not saved: %s", error);
+    sendError(strcmp(error, "wrong device password") == 0 ? 403 : 400, error);
+    return;
+  }
+  settingsSave(next);
+  server.send(200, "application/json", "{\"saved\":true}");
+  logf(LogLevel::Info, "Web: settings saved, restarting");
+  scheduleRestart();
+}
+
+// On a hotspot, unknown URLs (a phone's connectivity check, for one) go to the page, so the
+// phone opens it by itself.
+static void handleNotFound() {
+  if (viaHotspot()) {
+    server.sendHeader("Location", String("http://") + WiFi.softAPIP().toString() + "/", true);
+    server.send(302, "text/plain", "");
+    return;
+  }
+  server.send(404, "text/plain", "not found");
+}
 
 static void handleStatus() {
   const uint32_t now = millis();
@@ -69,6 +175,8 @@ static void handleStatus() {
   j.str(netHotspotOn() ? WiFi.softAPIP().toString().c_str() : "");
   j.raw(",\"hotspot_clients\":");
   j.num((uint32_t)(netHotspotOn() ? WiFi.softAPgetStationNum() : 0));
+  j.raw(",\"setup\":");
+  j.boolean(netSetupMode());
   j.raw("}");
 
   j.raw(",\"ais\":{\"baud\":");
@@ -141,16 +249,20 @@ static void handleLog() {
 static void handleRestart() {
   server.send(200, "application/json", "{\"restarting\":true}");
   logf(LogLevel::Warn, "Web: restart requested");
-  restartAt = millis() + kRestartDelayMs;
-  restartPending = true;
+  scheduleRestart();
 }
 
 void webBegin() {
-  server.on("/", HTTP_GET, handlePage);
+  server.on("/", HTTP_GET, handleRoot);
+  server.on("/setup", HTTP_GET, handleSetupPage);
   server.on("/api/status", HTTP_GET, handleStatus);
   server.on("/api/log", HTTP_GET, handleLog);
   server.on("/api/restart", HTTP_POST, handleRestart);
-  server.onNotFound([]() { server.send(404, "text/plain", "not found"); });
+  server.on("/api/setup", HTTP_GET, handleSetupGet);
+  server.on("/api/scan", HTTP_GET, handleScanGet);
+  server.on("/api/scan", HTTP_POST, handleScanPost);
+  server.on("/api/settings", HTTP_POST, handleSettingsPost);
+  server.onNotFound(handleNotFound);
   server.begin();
   logf(LogLevel::Info, "Web: console on port %d", WEB_PORT);
 }

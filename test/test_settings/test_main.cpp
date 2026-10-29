@@ -84,8 +84,101 @@ void test_password_uses_whole_alphabet() {
   for (size_t i = 0; i < n; i++) TEST_ASSERT_TRUE(seen[i]);
 }
 
+//*****************************************************************************
+// Saving from the setup page (7.5)
+
+static GatewaySettings saved() {
+  GatewaySettings s = {};
+  strcpy(s.ssid, "Harbour");
+  strcpy(s.wifiPass, "harbour-pass");
+  strcpy(s.devicePass, "abcdefgh2345");
+  s.aisBaud = 38400;
+  return s;
+}
+
+static SettingsForm form(const char *ssid, const char *wifiPass, uint32_t baud, const char *newPass,
+                         const char *password) {
+  SettingsForm f = {ssid, wifiPass, baud, newPass, password};
+  return f;
+}
+
+void test_form_from_boat_network_needs_password() {
+  GatewaySettings out = saved();
+  TEST_ASSERT_EQUAL_STRING("wrong device password",
+                           applySettingsForm(saved(), form("Harbour", "", 4800, "", "nope"), false, out));
+  TEST_ASSERT_EQUAL_STRING("wrong device password",
+                           applySettingsForm(saved(), form("Harbour", "", 4800, "", ""), false, out));
+  TEST_ASSERT_NULL(applySettingsForm(saved(), form("Harbour", "", 4800, "", "abcdefgh2345"), false, out));
+  TEST_ASSERT_EQUAL(4800, out.aisBaud);
+}
+
+void test_form_through_hotspot_needs_no_password() {
+  GatewaySettings out = saved();
+  TEST_ASSERT_NULL(applySettingsForm(saved(), form("Marina", "marina-pass", 38400, "", ""), true, out));
+  TEST_ASSERT_EQUAL_STRING("Marina", out.ssid);
+  TEST_ASSERT_EQUAL_STRING("marina-pass", out.wifiPass);
+}
+
+void test_form_blank_wifi_pass_keeps_saved_for_same_network() {
+  GatewaySettings out = saved();
+  TEST_ASSERT_NULL(applySettingsForm(saved(), form("Harbour", "", 38400, "", ""), true, out));
+  TEST_ASSERT_EQUAL_STRING("harbour-pass", out.wifiPass);
+}
+
+void test_form_blank_wifi_pass_on_new_network_is_open() {
+  GatewaySettings out = saved();
+  TEST_ASSERT_NULL(applySettingsForm(saved(), form("Open Marina", "", 38400, "", ""), true, out));
+  TEST_ASSERT_EQUAL_STRING("", out.wifiPass);
+}
+
+void test_form_network_name_is_case_sensitive() {
+  // "harbour" is a different network: the saved password isn't carried over.
+  GatewaySettings out = saved();
+  TEST_ASSERT_NULL(applySettingsForm(saved(), form("harbour", "", 38400, "", ""), true, out));
+  TEST_ASSERT_EQUAL_STRING("", out.wifiPass);
+}
+
+void test_form_new_device_password() {
+  GatewaySettings out = saved();
+  TEST_ASSERT_NULL(applySettingsForm(saved(), form("Harbour", "", 38400, "new-password", "abcdefgh2345"), false, out));
+  TEST_ASSERT_EQUAL_STRING("new-password", out.devicePass);
+  out = saved();
+  TEST_ASSERT_NULL(applySettingsForm(saved(), form("Harbour", "", 38400, "", "abcdefgh2345"), false, out));
+  TEST_ASSERT_EQUAL_STRING("abcdefgh2345", out.devicePass);  // blank keeps it
+}
+
+void test_form_rejects_bad_values_and_leaves_out_alone() {
+  GatewaySettings out = saved();
+  TEST_ASSERT_NOT_NULL(applySettingsForm(saved(), form("", "", 38400, "", ""), true, out));
+  TEST_ASSERT_NOT_NULL(applySettingsForm(saved(), form("Marina", "short", 38400, "", ""), true, out));
+  TEST_ASSERT_NOT_NULL(applySettingsForm(saved(), form("Harbour", "", 9600, "", ""), true, out));
+  TEST_ASSERT_NOT_NULL(applySettingsForm(saved(), form("Harbour", "", 38400, "short", ""), true, out));
+  TEST_ASSERT_EQUAL_STRING("Harbour", out.ssid);
+  TEST_ASSERT_EQUAL_STRING("harbour-pass", out.wifiPass);
+  TEST_ASSERT_EQUAL_STRING("abcdefgh2345", out.devicePass);
+  TEST_ASSERT_EQUAL(38400, out.aisBaud);
+}
+
+void test_form_first_setup_from_nothing() {
+  GatewaySettings blank = {};
+  strcpy(blank.devicePass, "abcdefgh2345");  // made up on first boot
+  blank.aisBaud = AIS_BAUD_DEFAULT;
+  GatewaySettings out = blank;
+  TEST_ASSERT_NULL(applySettingsForm(blank, form("Harbour", "harbour-pass", 38400, "", ""), true, out));
+  TEST_ASSERT_EQUAL_STRING("Harbour", out.ssid);
+  TEST_ASSERT_EQUAL_STRING("abcdefgh2345", out.devicePass);
+}
+
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(test_form_from_boat_network_needs_password);
+  RUN_TEST(test_form_through_hotspot_needs_no_password);
+  RUN_TEST(test_form_blank_wifi_pass_keeps_saved_for_same_network);
+  RUN_TEST(test_form_blank_wifi_pass_on_new_network_is_open);
+  RUN_TEST(test_form_network_name_is_case_sensitive);
+  RUN_TEST(test_form_new_device_password);
+  RUN_TEST(test_form_rejects_bad_values_and_leaves_out_alone);
+  RUN_TEST(test_form_first_setup_from_nothing);
   RUN_TEST(test_saved_wins_over_secrets);
   RUN_TEST(test_secrets_used_when_never_saved);
   RUN_TEST(test_default_when_neither);

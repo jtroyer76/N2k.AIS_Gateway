@@ -20,6 +20,7 @@
 #include <Arduino.h>
 
 #include "AisInput.h"
+#include "Button.h"
 #include "CanStatus.h"
 #include "Led.h"
 #include "Log.h"
@@ -44,6 +45,7 @@ void setup() {
   netBegin();
   otaBegin();
   webBegin();
+  buttonBegin();
 
   enableLoopWDT();  // 5 s; OTA disables it while an upload blocks the loop
 }
@@ -57,12 +59,14 @@ void loop() {
   netLoop(now);
   otaLoop(now, n2kHealthy());
   webLoop(now);
+  buttonLoop(now);
 
   LedInputs led = {};
   led.now = now;
   led.lastAisMs = stats.lastAisMs;
   led.canRunning = canRunning();
   led.hotspotOn = netHotspotOn();
+  led.setupMode = netSetupMode();
   led.otaActive = otaActive();
   ledUpdate(led);
 

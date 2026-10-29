@@ -111,3 +111,22 @@ void settingsBegin() {
 const GatewaySettings &settings() { return current; }
 
 bool settingsHaveNetwork() { return current.ssid[0] != '\0'; }
+
+void settingsSave(const GatewaySettings &s) {
+  prefs.begin("gateway", false);
+  prefs.putString("ssid", s.ssid);
+  prefs.putString("wifi_pass", s.wifiPass);
+  prefs.putString("device_pass", s.devicePass);
+  prefs.putUInt("ais_baud", s.aisBaud);
+  prefs.end();
+  logf(LogLevel::Info, "Settings: saved (WiFi network \"%s\", AIS %lu baud)", s.ssid, (unsigned long)s.aisBaud);
+}
+
+void settingsClear() {
+  prefs.begin("gateway", false);
+  prefs.remove("ssid");
+  prefs.remove("wifi_pass");
+  prefs.remove("device_pass");
+  prefs.end();
+  logf(LogLevel::Warn, "Settings: WiFi and device password cleared");
+}

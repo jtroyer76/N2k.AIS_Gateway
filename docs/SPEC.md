@@ -343,10 +343,14 @@ Uses the core's `WebServer` (synchronous; every handler must be fast, and there'
 - LED: the purple hotspot blip, plus a distinct pattern for "not set up" (pattern to choose in `include/LedPattern.h`).
 - AIS bridging runs normally while unconfigured: WiFi state never affects bridging.
 
+*Implemented 2026-10-29* in `src/Net.cpp` (decisions in `include/NetPolicy.h`, host-tested). The scan is asynchronous: a hotspot (setup or fallback) waits for it, or for 15 s, then comes up; the list keeps each name once, at its strongest, up to 20, strongest first, without hidden networks. Captive DNS runs on both hotspots (Arduino `DNSServer`). LED: the setup hotspot blips purple twice, 300 ms apart (`LED_SETUP_GAP_MS`); the fallback hotspot once. Not run on hardware yet.
+
 ### 7.4 Bench reset (button)
 - Hold the button for **10 s**: clear WiFi and the device password, then restart into the setup hotspot (a new password is made up). The N2k node address and the AIS baud are kept.
 - For the bench only: the button can't be reached once the unit is enclosed (§3). Recovery for an installed unit with a lost password: open the enclosure, or USB.
 - A short press does nothing, so a knock can't reset it.
+
+*Implemented 2026-10-29* in `src/Button.cpp` (GPIO39, active low, polled every 20 ms; decision in `include/ButtonPolicy.h`, host-tested). Any release restarts the 10 s count. Active low as in M5Stack's own Atom library (`Button(39, true, 10)`, invert = pressed when low).
 
 ### 7.5 Setup page and web API
 On the phase 2 web server. The status/console page gets a Settings link.
@@ -361,6 +365,12 @@ On the phase 2 web server. The status/console page gets a Settings link.
 - The upload blocks the loop while it runs, so AIS bridging pauses, as it already does for ArduinoOTA.
 - ArduinoOTA from PlatformIO stays, with the device password.
 - `POST /api/restart` stays unauthenticated (phase 2 decision): it can't change anything.
+
+*Implemented 2026-10-29 (all but `POST /ota`)* in `src/Web.cpp` and `src/SetupPage.h`; the save rules are `applySettingsForm()` in `include/SettingsPolicy.h` (host tests in `test/test_settings`). Two endpoints more than the table:
+- `GET /api/setup`: version, hostname, `setup` (no network saved), `via_hotspot`, saved network name, AIS baud, and the device password only when `via_hotspot`.
+- `POST /api/scan`: starts a scan from the boat network (the page's Scan button). Refused while a hotspot is on.
+
+"Through a hotspot" means the hotspot is up and the request arrived on its address (`192.168.4.1`). A wrong device password gives 403, a bad value 400, both with `{"error": "..."}`. A network name that differs only in case is a different network, so the saved WiFi password isn't carried over. `/api/status` gains `wifi.setup`.
 
 ### 7.6 Improv over serial: not in phase 3
 WiFi is set up only through the setup hotspot (§7.3), which lists the networks in range and works without USB. Decided 2026-10-29: one setup path for now. Improv in the web flasher is in the backlog (§9).

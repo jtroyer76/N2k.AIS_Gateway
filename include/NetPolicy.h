@@ -19,8 +19,17 @@ struct NetActions {
 
 class NetPolicy {
 public:
-  NetActions step(uint32_t now, bool stationConnected, int hotspotClients) {
+  // haveNetwork false (no network saved, SPEC 7.3): the setup hotspot comes on at once and the
+  // station stays off.
+  NetActions step(uint32_t now, bool stationConnected, int hotspotClients, bool haveNetwork = true) {
     NetActions a;
+    if (!haveNetwork) {
+      if (!hotspot) {
+        hotspot = true;
+        a.startHotspot = true;
+      }
+      return a;
+    }
     if (!started) {
       started = true;
       lastConnected = now;

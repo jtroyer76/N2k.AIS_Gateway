@@ -9,6 +9,7 @@
 #define LED_AIS_FLASH_MS   50    // Green flash per AIS sentence
 #define LED_BLIP_MS        100   // Length of the "no AIS" / "hotspot" blips
 #define LED_BLIP_PERIOD_MS 5000  // Blips repeat every 5 s; hotspot blip is offset by half a period
+#define LED_SETUP_GAP_MS   300   // Setup hotspot: a second purple blip this long after the first
 
 enum class LedColor { Off, Blue, Green, Red, Amber, Purple, White };
 
@@ -18,6 +19,7 @@ struct LedInputs {
   bool booting;        // latched by the LED module for the first LED_BOOT_MS
   bool canRunning;
   bool hotspotOn;
+  bool setupMode;      // no network saved: the setup hotspot (SPEC 7.3)
   bool otaActive;
 };
 
@@ -34,5 +36,8 @@ inline LedColor ledPattern(const LedInputs &in) {
   if (sinceAis > NO_AIS_MS && phase < LED_BLIP_MS) return LedColor::Amber;
   const uint32_t half = LED_BLIP_PERIOD_MS / 2;
   if (in.hotspotOn && phase >= half && phase < half + LED_BLIP_MS) return LedColor::Purple;
+  // The setup hotspot blips twice.
+  const uint32_t second = half + LED_SETUP_GAP_MS;
+  if (in.hotspotOn && in.setupMode && phase >= second && phase < second + LED_BLIP_MS) return LedColor::Purple;
   return LedColor::Off;
 }
