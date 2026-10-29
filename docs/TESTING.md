@@ -4,7 +4,7 @@ Start here when picking up the gateway in a new session. Spec: [SPEC.md](SPEC.md
 
 ## State (2026-10-27)
 
-- **Stage 1 (CAN only) PASSED on the boat, 2026-10-27 evening** — see "Boat test results" below. Stage 2 (AIS via Tail485) deferred: the WatchMate's NMEA serial run has to be dug out of a legacy PO wiring setup first.
+- **Stage 1 (CAN only) PASSED on the boat, 2026-10-27 evening** — see "Boat test results" below. Stage 2 (AIS via Tail485) deferred: the AIS unit's NMEA serial output on the test boat has to be freed from older wiring first.
 - Phase 1 code complete (SPEC §5.1–5.12), on `main`.
 - Host tests: `pio test -e native`, 66 tests (24 conversion, 26 logic, 16 web), all passing.
 - Phase 2 web console: code done 2026-10-28, not yet run on hardware (see "After the boat test").
@@ -12,11 +12,11 @@ Start here when picking up the gateway in a new session. Spec: [SPEC.md](SPEC.md
 - Timo answered [ttlappalainen/NMEA2000_esp32#39](https://github.com/ttlappalainen/NMEA2000_esp32/issues/39) on 2026-10-28. He has seen an ESP32 state where it still transmits but receives nothing, with no error flag, after 2–20 days of running. A short boat test can't rule it out. Open question Q4 in the driver spec (candidate fix: an RX-silence watchdog).
 
 ### What is on the device right now
-After the boat test (2026-10-27), the Atom Lite (CAN Unit attached, Tail485 **not** fitted) runs the build from nootka-pc, updated by OTA and marked valid on the live bus:
-- `WIFI_SSID` = `Nootka` (the boat network; case matters). On the boat it got 192.168.10.154.
+After the boat test (2026-10-27), the Atom Lite (CAN Unit attached, Tail485 **not** fitted) runs the build from the boat PC, updated by OTA and marked valid on the live bus:
+- `WIFI_SSID` = the boat network (case matters).
 - `AP_PASS` = `change-me-hotspot`, `OTA_PASS` = `change-me-ota`: still the template placeholders.
 
-Away from the boat network it comes up in **hotspot mode after 5 minutes**: SSID `AIS-Gateway-E08C`, password `change-me-hotspot`, address `192.168.4.1`. At home that's the way in (or USB). Replace the placeholder passwords before the permanent install.
+Away from the boat network it comes up in **hotspot mode after 5 minutes**: SSID `AIS-Gateway-XXXX`, password `change-me-hotspot`, address `192.168.4.1`. At home that's the way in (or USB). Replace the placeholder passwords before the permanent install.
 
 ## Desk test at home, 2026-10-27 (no CAN bus, no AIS input)
 
@@ -103,23 +103,23 @@ USB can't be reached once the Tail485 is on, so from here it's the LED, the plot
 4. LED meanings are in the README table. Red blinking means CAN isn't running.
 
 ### Record results
-Update this file (and tick SPEC §5.13 items that pass), then the status line in nootka-specs `refit/electronics/plan.md`.
+Update this file (and tick SPEC §5.13 items that pass), then any boat-side notes kept outside this repo.
 
 ## Boat test results — 2026-10-27 evening (Stage 1, CAN only)
 
-Boat computer: **nootka-pc** (the boat's permanent Windows 11 PC, not a laptop), PlatformIO Core 6.2.0 (Python 3.12 via winget), repo cloned fresh. nootka-pc is on the tailnet, so firmware builds / OTA can be driven remotely — but it **sleeps**, so it may need waking first (and it has the Tailscale-adapter espota quirk noted below). Atom on USB (COM14, FTDI FT232 bridge), CAN Unit plugged into the Pi's Actisense drop (Pi temporarily off the bus for the test; no spare drop used). Internet: Starlink. Build `m5stack-atom`: RAM 16.5%, Flash 67.7%.
+Boat computer: a Windows 11 PC on board, PlatformIO Core 6.2.0 (Python 3.12 via winget), repo cloned fresh. It has a VPN adapter, which causes the espota quirk noted below. Atom on USB (FTDI FT232 bridge), CAN Unit plugged into an existing drop (that drop's device temporarily off the bus for the test). Build `m5stack-atom`: RAM 16.5%, Flash 67.7%.
 
 **All Stage 1 checks passed:**
 - First run of the vendored `NMEA2000_esp32_idf_twai` driver on a live bus. With the bus connected: `CAN: running`, **no** error-passive line, stats `TEC 0, REC 0, bus-off 0`, `rx ~3850/min` (traffic from other nodes). (Disconnected/floating, it correctly sat at error-passive REC 135 — matches the earlier desk observation.)
-- `WiFi: connected, IP 192.168.10.154, RSSI -51` — joined on the first attempt after the SSID fix below.
+- `WiFi: connected, IP <boat LAN address>, RSSI -51` — joined on the first attempt after the SSID fix below.
 - Heap steady ~227 KB.
 - **OTA over the boat WiFi, then `OTA: new image marked valid` at 60.0 s** — the rollback health check that could not be tested at home (it needs a live bus with REC < 96 and traffic from another node). Confirmed on the real bus.
 
 **Two gotchas found and worked around (boat-computer specific):**
-1. **SSID is case-sensitive.** `secrets.h` had `nootka`; the network is **`Nootka`**. The firmware logged `WiFi: joining "nootka"` and never associated (no `WiFi: connected` line, which Net.cpp emits on success). Fixing the case → connected in 0.5 s. 802.11 SSIDs are a raw byte string, so case matters.
-2. **espota needs `-I` + a firewall allow on nootka-pc.** nootka-pc has a Tailscale adapter (100.99.127.90) alongside Wi-Fi (192.168.10.163). `pio run -e ...-ota -t upload` and plain espota authenticated then failed `No response from device`. The device's callback on TCP 3233 was also blocked by Windows Firewall (fresh Python install, no exception). Fix that worked:
+1. **SSID is case-sensitive.** `secrets.h` had the network name in lower case; the real name starts with a capital. The firmware logged `WiFi: joining "<name>"` and never associated (no `WiFi: connected` line, which Net.cpp emits on success). Fixing the case → connected in 0.5 s. 802.11 SSIDs are a raw byte string, so case matters.
+2. **espota needs `-I` + a firewall allow on the boat PC.** The PC has a VPN adapter (Tailscale) alongside Wi-Fi. `pio run -e ...-ota -t upload` and plain espota authenticated then failed `No response from device`. The device's callback on TCP 3233 was also blocked by Windows Firewall (fresh Python install, no exception). Fix that worked:
    - Allow `python.exe` / inbound TCP 3233 through Windows Firewall (one-time).
-   - `python <...>/espota.py -i 192.168.10.154 -I 192.168.10.163 -p 3232 -P 3233 -a "<OTA_PASS>" -f .pio/build/m5stack-atom-ota/firmware.bin -r`
+   - `python <...>/espota.py -i <device IP> -I <PC IP on the boat network> -p 3232 -P 3233 -a "<OTA_PASS>" -f .pio/build/m5stack-atom-ota/firmware.bin -r`
 
 **Notes for next time:**
 - `pio device monitor` can't run non-interactively in this harness; read the port with a short pyserial script instead. **Do not toggle DTR/RTS during the OTA verify window** — a reset before the 60 s mark would roll the image back. Open with both lines held equal (no reset) to watch the verification.
@@ -133,7 +133,7 @@ Boat computer: **nootka-pc** (the boat's permanent Windows 11 PC, not a laptop),
   - `/` serves the page (6.9 KB); unknown paths give 404; `GET /api/restart` gives 404
   - `POST /api/restart`: back within 10 s, reset reason "software restart", the log reports `reset`
   - 60 s of polling at the page's rate (log every 1 s, status every 2 s): no failed requests; free heap 180–181 KB, compared with about 220–227 KB in phase 1; lowest ever 155 KB
-  - the page in a browser and on a phone in dark mode, and on the phone in light mode: checked by Jess, looks good
+  - the page in a browser and on a phone in dark mode, and on the phone in light mode: checked by the owner, looks good
   - **through the hotspot** (2026-10-28): a test build aimed at a missing network (see "Hotspot test build" below) brought the hotspot up. With the PC's USB WiFi adapter joined (PC at 192.168.4.2), `http://192.168.4.1/` served the page, status (`hotspot: true`, 1 client) and log. The log showed "hotspot client connected, not searching for the boat network".
   - **`more` paging:** after about 5 h of uptime the buffer had wrapped. A full read took 4 requests (40 + 40 + 40 + 30 lines = the 150 kept), and the 155 dropped lines were reported as `lost`.
   - free heap in the stats lines stayed at 181,660 bytes for the whole 5 h (page not open most of that time)
@@ -147,5 +147,5 @@ Boat computer: **nootka-pc** (the boat's permanent Windows 11 PC, not a laptop),
   - on the boat: an OTA of the phase 2 build validates (SPEC §6.3)
 - Before the permanent install: check driver spec Q5. A report says the TWAI errata fix `TX_INTR_LOST`, which Arduino 2.0.17 enables, can cause crashes (espressif/esp-idf#9697).
 - Permanent install: sealed enclosure, Micro-C drop, conformal coating if damp; 24-hour soak test.
-- On-bus conversion check with `candump` + canboat `analyzer` once the Pi has a native CAN interface (AtomS3 CAN gateway, arriving 2026-10-29).
+- On-bus conversion check with `candump` + canboat `analyzer` once the test boat's SignalK computer has a native CAN interface.
 - Publish the driver repo to GitHub once proven; switch `lib_deps` to a tag.
