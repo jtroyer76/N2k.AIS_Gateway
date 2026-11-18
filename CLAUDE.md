@@ -1,6 +1,6 @@
 # N2k.AIS_Gateway
 
-AIS (NMEA 0183) → NMEA 2000 gateway for an M5Stack Atom Lite.
+AIS (NMEA 0183) → NMEA 2000 gateway for an M5Stack Atom Lite (env `m5stack-atom`) or a Seeed XIAO ESP32-S3 on the CAN + RS485 carrier board (env `xiao-carrier`; SPEC §3.1). Board differences live in `include/Config.h`; changes must build for both.
 
 This is a public, general product: no boat names, hostnames, network names, addresses or other boat-specific details in docs, examples, test data or screenshots. "The test boat" is fine.
 
@@ -16,8 +16,8 @@ This is a public, general product: no boat names, hostnames, network names, addr
 - Keep SPEC.md and TESTING.md up to date with what was actually done and verified.
 
 ## Commands
-- `pio run`: build. `pio run -t upload`: USB flash. `pio device monitor`: serial log (115200).
-- `pio run -e m5stack-atom-ota -t upload`: OTA (needs `AIS_OTA_PASS`). If it fails after authenticating, see TESTING.md "OTA from a PC with several network adapters".
+- `pio run -e m5stack-atom` / `-e xiao-carrier`: build. Add `-t upload` for a USB flash (the XIAO needs no buttons). `pio device monitor`: serial log (115200); the console takes `help` and `reset settings`.
+- `pio run -e m5stack-atom-ota -t upload` (or `xiao-carrier-ota`): OTA (needs `AIS_OTA_PASS`). If it fails after authenticating, see TESTING.md "OTA from a PC with several network adapters".
 - `pio test -e native`: host tests (needs a host gcc/g++). Run them before `pio run`: a changed `platformio.ini` makes the next run wipe `.pio/build`.
 - Release: push a `v*` tag on `main`; `release.yml` builds, publishes the release and the web flasher. The version is the tag (`scripts/version.py`). Tagging is the owner's call.
 - Changes go through PRs that pass CI (`ci.yml`); Conventional Commit titles.
