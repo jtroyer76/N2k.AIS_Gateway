@@ -4,6 +4,7 @@
 
 
 #include "strutils.h"
+#include <stdint.h>  // uint8_t, uint64_t: newer GCC no longer brings these in through <string>
 
 #include <string>
 #include <vector>
