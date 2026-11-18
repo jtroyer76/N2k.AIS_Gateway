@@ -20,4 +20,4 @@ bool otaUploadBegin(size_t size);
 bool otaUploadWrite(uint8_t *data, size_t len);
 const char *otaUploadError();  // reason for the last refused write, or nullptr
 bool otaUploadEnd();  // true: the image is complete and set to boot (pending verification, 5.11)
-void otaUploadAbort();
+void otaUploadAbort();  // leaves the watchdog paused: the caller resumes it when the request ends

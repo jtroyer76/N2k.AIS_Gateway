@@ -151,9 +151,10 @@ bool otaUploadEnd() {
   return true;
 }
 
+// The watchdog stays paused: the web server still reads and drops the rest of the body, which
+// blocks the loop for as long as the upload takes. It resumes the watchdog when the request ends.
 void otaUploadAbort() {
   Update.abort();
   logf(LogLevel::Error, "OTA: web upload aborted");
   active = false;
-  resumeWdt();
 }

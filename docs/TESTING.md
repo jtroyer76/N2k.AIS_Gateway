@@ -52,7 +52,9 @@ First v0.1 carrier, XIAO ESP32-S3, on USB plus 12 V on the carrier's power termi
 | Serial console: `help` lists the commands; `reset` is refused as unknown | ✅ |
 | Serial console: `reset settings` clears WiFi and the device password and restarts | ✅ (the dev build then re-saves from `secrets.h`, as §7.1 says) |
 | Build without `secrets.h`, merged as in `release.yml`, written at `0x0` after a full erase | ✅ booted into the open setup hotspot |
-| Firmware upload of the Atom's image to the XIAO is refused (chip check); the XIAO's own is accepted | ⏳ WiFi was too weak to upload (pings up to 2.3 s, RSSI −71 to −77): check that the XIAO's U.FL antenna is fitted, then repeat |
+| Firmware upload of the Atom's image to the XIAO is refused (chip check) | ✅ 400 "the firmware is for ESP32, this gateway is ESP32-S3 (…)", still running the old slot (2026-11-18, U.FL antenna fitted, RSSI about −72) |
+| …and the gateway survives a refused upload that takes longer than the 5 s loop watchdog | ❌ first try: task watchdog reset, because aborting the update resumed the watchdog while the server was still dropping the rest of the body. Fixed (the watchdog stays paused until the request ends); ✅ 3 of 3 refusals, 7.7–8.1 s each, no reset |
+| The XIAO's own update image is accepted and boots from the other slot | ✅ 200, then running from `app1`, pending verification |
 | LED patterns on the single-colour LED | ⏳ not watched yet |
 | CAN on a live bus, AIS from an RS422 source, current draw at 12 V (LEN) | ⏳ |
 
