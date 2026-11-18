@@ -6,10 +6,19 @@
     {
       "chipFamily": "ESP32",
       "parts": [
-        { "path": "bootloader.bin", "offset": 4096 },
-        { "path": "partitions.bin", "offset": 32768 },
-        { "path": "boot_app0.bin", "offset": 57344 },
-        { "path": "firmware.bin", "offset": 65536 }
+        { "path": "m5stack-atom/bootloader.bin", "offset": 4096 },
+        { "path": "m5stack-atom/partitions.bin", "offset": 32768 },
+        { "path": "m5stack-atom/boot_app0.bin", "offset": 57344 },
+        { "path": "m5stack-atom/firmware.bin", "offset": 65536 }
+      ]
+    },
+    {
+      "chipFamily": "ESP32-S3",
+      "parts": [
+        { "path": "xiao-carrier/bootloader.bin", "offset": 0 },
+        { "path": "xiao-carrier/partitions.bin", "offset": 32768 },
+        { "path": "xiao-carrier/boot_app0.bin", "offset": 57344 },
+        { "path": "xiao-carrier/firmware.bin", "offset": 65536 }
       ]
     }
   ]
