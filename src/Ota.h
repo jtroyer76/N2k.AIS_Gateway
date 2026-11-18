@@ -16,6 +16,8 @@ void otaWatchdogPause();
 void otaWatchdogResume();
 
 bool otaUploadBegin(size_t size);
+// False also when the image is for another chip (ImageCheck.h); otaUploadError() then says why.
 bool otaUploadWrite(uint8_t *data, size_t len);
+const char *otaUploadError();  // reason for the last refused write, or nullptr
 bool otaUploadEnd();  // true: the image is complete and set to boot (pending verification, 5.11)
 void otaUploadAbort();
