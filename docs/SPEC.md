@@ -40,6 +40,25 @@ A common setup without it is AIS → USB → SignalK on a computer → N2k. The 
 
 **The USB-C port can't be reached once the Tail485 is fitted and the unit is installed.** All updates after installation are OTA.
 
+### 3.1 XIAO carrier board (env `xiao-carrier`, added 2026-11-17)
+
+A second board: a Seeed XIAO ESP32-S3 on an open-hardware carrier ([n2k_atom_can485_hw](https://github.com/jtroyer76/n2k_atom_can485_hw)) with CAN, isolated RS485/RS422 and power from the N2k drop on one board and one 7-pin terminal. Same firmware; the env sets `BOARD_XIAO_CARRIER` and `include/Config.h` picks the pins.
+
+| Function | XIAO pin | GPIO | Notes |
+|---|---|---|---|
+| CAN TX / RX | D8 / D9 | 7 / 8 | TJA1051T/3 transceiver on the carrier, no termination fitted (solder jumper, open) |
+| RS485 RX / TX | D1 / D0 | 2 / 1 | CA-IS2092 isolated transceiver, UART1 |
+| RS485 driver enable | D3 | 4 | held low by the firmware (and a 10 k pull-down on the board): the gateway only receives |
+| LED | user LED | 21 | single colour, active low (§5.5) |
+
+- No button: the XIAO's BOOT and RESET buttons are too small to use in practice, so nothing depends on them. Settings reset is the serial console command (§7.4). Flashing needs no buttons either: the board's default USB mode (USB-Serial/JTAG, `ARDUINO_USB_MODE=1`) lets esptool reset the XIAO into its bootloader.
+- USB-C stays reachable through the carrier's enclosure.
+- Serial is the S3's own USB (HWCDC). With no USB host (installed), a write doesn't wait: the core's `HWCDC::write` drops output when no host is detected. Plugged into a PC with no terminal open, a write can wait up to the core's 100 ms `tx_timeout_ms` once before the core marks the port disconnected (Arduino core 2.0.17, `HWCDC.cpp`). That's a bench-only case.
+- Partition table: the same 4 MB `default.csv` as the Atom (two OTA slots); the XIAO's other 4 MB are unused.
+- The CAN driver (`NMEA2000_esp32_idf_twai`) uses only the ESP-IDF TWAI API, with nothing chip-specific; the carrier's bring-up test used the same API on the S3.
+
+Wiring: NET-S and NET-C to the carrier's 12V and 0V terminals, CAN-H/CAN-L to CH/CL, the AIS unit's RS422 out+/out− to A/B, and its signal ground to the isolated ground terminal (ISO) if it needs a reference.
+
 ### Power and wiring (powered from the bus)
 
 | N2k drop wire | Connects to |
@@ -147,6 +166,8 @@ Code review (2026-10-27) of `include/NMEA0183AIStoNMEA2000.h` found AIS "not ava
 
 The LED is driven by a state that the loop updates; nothing may call `delay()`. Only call `FastLED.show()` when the colour changes. At `LED_BRIGHTNESS 0`, the LED is never driven.
 
+On the XIAO carrier (`LED_MONO`, §3.1) the LED is single-colour: any colour of the same pattern lights it, Off turns it off. The states are then told apart by timing alone; the no-AIS and hotspot blips are still half a period apart, and the setup hotspot still blips twice. `LED_BRIGHTNESS` only switches it off (0) or on.
+
 | State | LED | Phase |
 |---|---|---|
 | Boot | Blue, 500 ms (non-blocking) | 1 |
@@ -168,7 +189,7 @@ The LED is driven by a state that the loop updates; nothing may call `delay()`. 
 *Implemented 2026-10-27* in `src/N2kNode.cpp`. The model serial code is the same 21-bit unique number (it was "1"). The product code stays 10.
 
 - Keep the existing node address stored in NVS (namespace `nvs`, key `LastNodeAddress`).
-- Product information: model ID `"AIS Gateway"`, software version from `FW_VERSION` (`include/Version.h`, starting at `1.1.0`), model version `"M5 Atom + CAN + Tail485"`.
+- Product information: model ID `"AIS Gateway"`, software version from `FW_VERSION` (`include/Version.h`, starting at `1.1.0`), model version `BOARD_NAME` from `include/Config.h`: `"M5 Atom + CAN + Tail485"` or `"XIAO ESP32-S3 CAN/RS485 carrier"` (31 characters; the library's limit is 32).
 - Device information: function 135 (NMEA 0183 gateway), class 25, manufacturer code 2046. Keep the unique number derived from the MAC, masked to 21 bits.
 - **Announce the transmitted PGNs** with `ExtendTransmitMessages()`: 129038, 129039, 129040, 129794, 129802, 129809, 129810. This lets device lists and diagnostic tools show the gateway as an AIS source.
 
@@ -345,12 +366,14 @@ Uses the core's `WebServer` (synchronous; every handler must be fast, and there'
 
 *Implemented 2026-10-29* in `src/Net.cpp` (decisions in `include/NetPolicy.h`, host-tested). The scan is asynchronous: a hotspot (setup or fallback) waits for it, or for 15 s, then comes up; the list keeps each name once, at its strongest, up to 20, strongest first, without hidden networks. Captive DNS runs on both hotspots (Arduino `DNSServer`). LED: the setup hotspot blips purple twice, 300 ms apart (`LED_SETUP_GAP_MS`); the fallback hotspot once. Not run on hardware yet.
 
-### 7.4 Bench reset (button)
+### 7.4 Settings reset (button, serial console)
 - Hold the button for **10 s**: clear WiFi and the device password, then restart into the setup hotspot (a new password is made up). The N2k node address and the AIS baud are kept.
 - For the bench only: the button can't be reached once the unit is enclosed (§3). Recovery for an installed unit with a lost password: open the enclosure, or USB.
 - A short press does nothing, so a knock can't reset it.
 
 *Implemented 2026-10-29* in `src/Button.cpp` (GPIO39, active low, polled every 20 ms; decision in `include/ButtonPolicy.h`, host-tested). Any release restarts the 10 s count. Active low as in M5Stack's own Atom library (`Button(39, true, 10)`, invert = pressed when low).
+
+**Serial console (added 2026-11-17):** typing `reset settings` on the USB serial console (115200; the web flasher's "Logs & Console" works) does the same as the button. It is the only reset on the XIAO carrier, whose buttons are too small to use (§3.1), and works on the Atom too. Like the button and like the device password shown on serial (§7.2), it needs the device in hand on USB. `help` lists the commands; anything else is logged as unknown, with the help. Case and spacing don't matter; anything more or less than the two words is refused. Lines over 32 characters are dropped whole. At most 64 bytes are read per loop. Code: `src/Console.cpp`; line reading and parsing in `include/ConsoleCommand.h`, host-tested; the button and the console share `resetSettingsAndRestart()`.
 
 ### 7.5 Setup page and web API
 On the phase 2 web server. The status/console page gets a Settings link.
@@ -374,11 +397,13 @@ On the phase 2 web server. The status/console page gets a Settings link.
 
 `POST /ota` (*implemented 2026-10-29*, `src/Web.cpp` + `src/Ota.cpp`): body = the app image, header `X-OTA-Password` = the device password (as Telltale), compared in constant time (`passwordMatches()`). The core's WebServer hands a non-form body to the handler in 1436-byte chunks, written with `Update`. A wrong password still has the whole body read and dropped, then 403. **The loop watchdog is paused for every upload, authorised or not:** the desk test found a wrong-password upload reset the gateway (task watchdog), because reading ~950 KB took longer than 5 s. So anyone on the boat network can pause bridging for as long as an upload lasts; the network is trusted (§6.2). The Settings page has a Firmware update card; on a hotspot the password is filled in.
 
+**Chip check (added 2026-11-17):** with two boards on two chips, the wrong board's `-update.bin` is an easy mistake. The core's `Update` only checks the image's magic byte (`Updater.cpp`). `src/Ota.cpp` collects the first 14 bytes of the body and checks the ESP-IDF app image header (`esp_image_header_t`, `esp_app_format.h`): magic `0xE9`, and the chip ID at offset 12 (little-endian uint16) against this build's `CONFIG_IDF_FIRMWARE_CHIP_ID` (ESP32 `0x0000`, ESP32-S3 `0x0009`). A mismatch is refused with 400 and the reason ("the firmware is for ESP32, this gateway is ESP32-S3 (…)"); bytes already handed to `Update` only reach the inactive slot, and an aborted update is never made bootable. Decision in `include/ImageCheck.h`, host-tested with the first bytes of real images from both envs. ArduinoOTA (espota) uploads don't get this check.
+
 ### 7.6 Improv over serial: not in phase 3
 WiFi is set up only through the setup hotspot (§7.3), which lists the networks in range and works without USB. Decided 2026-10-29: one setup path for now. Improv in the web flasher is in the backlog (§9).
 
 ### 7.7 Releases and web flasher
-- **CI** (`.github/workflows/ci.yml`, every pull request): no `secrets.h`, `pio run -e m5stack-atom`, `pio test -e native`.
+- **CI** (`.github/workflows/ci.yml`, every pull request): no `secrets.h`, `pio run -e m5stack-atom -e xiao-carrier`, `pio test -e native`.
 - **Release** (`.github/workflows/release.yml`, on a `v*` tag), modelled on Telltale's:
   - build without `secrets.h`, run the host tests
   - publish a GitHub release with `ais-gateway-<ver>-full.bin` (bootloader, partitions, OTA data and app merged, written at `0x0`) and `ais-gateway-<ver>-update.bin` (the app alone, for OTA)
@@ -388,6 +413,8 @@ WiFi is set up only through the setup hotspot (§7.3), which lists the networks 
 - The README links the flasher URL directly, and the repo's GitHub "Website" field points to it.
 
 *Implemented 2026-10-29.* CI since PR #3 (host tests link `-static-libstdc++ -static-libgcc`: `-Wl,-static` failed on Linux for want of a static `libgcc_s`). `FW_VERSION`: `scripts/version.py` (PlatformIO pre-script) runs `git describe --tags --always --dirty` and drops a leading `v`; `include/Version.h` keeps `"unknown"` for the host tests. Flash layout, from the Arduino core's `platformio-build.py` for the ESP32: bootloader `0x1000`, partition table `0x8000`, `boot_app0.bin` (OTA data, from the framework's `tools/partitions/`) `0xe000`, app `0x10000`; 4 MB, DIO, 40 MHz (board `m5stack-atom`). The manifest (`site/manifest.template.json`) and the `merge_bin` in `release.yml` use the same layout. ESP Web Tools 10.4.0 (as Telltale). Desk check: the merged image, built locally the same way and written at `0x0` after a full erase, booted into setup with its git version. Not yet run on GitHub: the first `v*` tag is the first release.
+
+**Both boards (2026-11-17):** CI and the release build `m5stack-atom` and `xiao-carrier`. Release assets are named per board: `ais-gateway-<ver>-<env>-full.bin` and `ais-gateway-<ver>-<env>-update.bin` (v1.2.0 and earlier: Atom only, without the board in the name). The flasher manifest has one build per chip family (`ESP32`, `ESP32-S3`); ESP Web Tools picks the one for the chip it detects. Each board's four files go in `site/firmware/<env>/`. S3 layout, from the same `platformio-build.py`: bootloader at `0x0` (the ESP32's is at `0x1000`), partition table `0x8000`, `boot_app0.bin` `0xe000`, app `0x10000`; 8 MB, DIO, 80 MHz. PlatformIO turns the board's QIO into DIO for the bootloader (platform `builder/main.py`), and the built bootloader's header says DIO, 8 MB, 80 MHz. Desk check 2026-11-17: a build without `secrets.h`, merged as in `release.yml` and written at `0x0` after a full erase, booted the XIAO into the open setup hotspot.
 
 ### 7.8 Generic docs
 - README, SPEC and TESTING describe a general product. Boat-specific details (network names, addresses, computers, people) don't go in this repo; "the test boat" is fine.

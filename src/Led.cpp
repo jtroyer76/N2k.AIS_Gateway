@@ -1,14 +1,27 @@
 #include "Led.h"
 
 #include <Arduino.h>
-#include <FastLED.h>
 
 #include "Config.h"
 
-static CRGB leds[1];
+#ifndef LED_MONO
+#include <FastLED.h>
+#endif
+
 static LedColor shown = LedColor::Off;
 static bool booting = true;
 static uint32_t bootMs = 0;
+
+#ifdef LED_MONO
+// Single-colour LED, active low: the same pattern, shown as on/off.
+static void drive(LedColor c) { digitalWrite(LED_PIN, c == LedColor::Off ? HIGH : LOW); }
+
+static void setupLed() {
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, HIGH);
+}
+#else
+static CRGB leds[1];
 
 static CRGB rgb(LedColor c) {
   switch (c) {
@@ -23,18 +36,27 @@ static CRGB rgb(LedColor c) {
   return CRGB::Black;
 }
 
+static void drive(LedColor c) {
+  leds[0] = rgb(c);
+  FastLED.show();
+}
+
+static void setupLed() {
+  FastLED.addLeds<WS2812, LED_PIN, GRB>(leds, 1);
+  FastLED.setBrightness(LED_BRIGHTNESS);
+}
+#endif
+
 void ledShowNow(LedColor color) {
   if (LED_BRIGHTNESS == 0 || color == shown) return;
   shown = color;
-  leds[0] = rgb(color);
-  FastLED.show();
+  drive(color);
 }
 
 void ledBegin() {
   bootMs = millis();
   if (LED_BRIGHTNESS == 0) return;
-  FastLED.addLeds<WS2812, LED_PIN, GRB>(leds, 1);
-  FastLED.setBrightness(LED_BRIGHTNESS);
+  setupLed();
   shown = LedColor::White;  // force the first show
   ledShowNow(LedColor::Blue);
 }

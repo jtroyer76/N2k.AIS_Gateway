@@ -39,6 +39,25 @@ From the settings PR on, WiFi and the device password are saved on the device (S
 | Button held 10 s → setup hotspot with a new password; short press nothing | ✅ owner, 2026-10-29 |
 | AIS bridging and CAN carry on through all of it | ⏳ at the boat, with a bus |
 
+### XIAO carrier board: desk test 2026-11-17 (SPEC §3.1)
+First v0.1 carrier, XIAO ESP32-S3, on USB plus 12 V on the carrier's power terminals; no CAN bus, no AIS input. The board's own bring-up test (CAN self-test through the transceiver, RS485 echo) passed first; see the carrier repo.
+
+| Test | Result |
+|---|---|
+| `pio run -e xiao-carrier` builds; `-e m5stack-atom` still builds; host tests pass | ✅ (XIAO: RAM 28.9 %, flash 68.4 % of the OTA slot) |
+| Flash over USB with no button presses (esptool resets the XIAO into its bootloader) | ✅ |
+| Boot log names the board; CAN starts on GPIO7/8; AIS on RX GPIO2 at 38400 | ✅ |
+| CAN with nothing on the bus: error passive, TEC 128 (no node to acknowledge) | ✅ as expected |
+| Dev build (`secrets.h`) joins the home network; `stats` line every 60 s | ✅ |
+| Serial console: `help` lists the commands; `reset` is refused as unknown | ✅ |
+| Serial console: `reset settings` clears WiFi and the device password and restarts | ✅ (the dev build then re-saves from `secrets.h`, as §7.1 says) |
+| Build without `secrets.h`, merged as in `release.yml`, written at `0x0` after a full erase | ✅ booted into the open setup hotspot |
+| Firmware upload of the Atom's image to the XIAO is refused (chip check) | ✅ 400 "the firmware is for ESP32, this gateway is ESP32-S3 (…)", still running the old slot (2026-11-18, U.FL antenna fitted, RSSI about −72) |
+| …and the gateway survives a refused upload that takes longer than the 5 s loop watchdog | ❌ first try: task watchdog reset, because aborting the update resumed the watchdog while the server was still dropping the rest of the body. Fixed (the watchdog stays paused until the request ends); ✅ 3 of 3 refusals, 7.7–8.1 s each, no reset |
+| The XIAO's own update image is accepted and boots from the other slot | ✅ 200, then running from `app1`, pending verification |
+| LED patterns on the single-colour LED | ⏳ not watched yet |
+| CAN on a live bus, AIS from an RS422 source, current draw at 12 V (LEN) | ⏳ |
+
 ### What is on the device right now
 After the boat test (2026-10-27), the Atom Lite (CAN Unit attached, Tail485 **not** fitted) runs the build from the boat PC, updated by OTA and marked valid on the live bus:
 - `WIFI_SSID` = the boat network (case matters).

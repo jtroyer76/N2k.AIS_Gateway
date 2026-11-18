@@ -42,26 +42,35 @@ jobs:
         run: test ! -e include/secrets.h
 
       - name: Build
-        run: pio run -e m5stack-atom
+        run: pio run -e m5stack-atom -e xiao-carrier
 
       - name: Host tests
         run: pio test -e native
 
-      # Flash layout of the Arduino core on the ESP32 (its platformio-build.py): bootloader 0x1000,
-      # partition table 0x8000, boot_app0 (OTA data) 0xe000, app 0x10000. Atom Lite: 4 MB, DIO, 40 MHz.
+      # Flash layout of the Arduino core (its platformio-build.py): bootloader at 0x1000 on the ESP32
+      # and 0x0 on the ESP32-S3; partition table 0x8000, boot_app0 (OTA data) 0xe000, app 0x10000.
+      # Atom Lite: 4 MB, DIO, 40 MHz. XIAO ESP32-S3: 8 MB, DIO, 80 MHz (PlatformIO turns the board's
+      # QIO into DIO for the bootloader; its header says DIO / 8 MB / 80 MHz).
+      # Each board's files go in its own folder under site/firmware/; the manifest has one build
+      # per chip, and the flasher picks the one for the chip it finds.
       - name: Package
         run: |
           VER=$(git describe --tags --always)
-          B=.pio/build/m5stack-atom
           BOOT_APP0=~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin
-          mkdir -p dist site/firmware
-          cp $B/bootloader.bin $B/partitions.bin $BOOT_APP0 $B/firmware.bin site/firmware/
-          # One file for esptool: write it at 0x0 on a fresh board
-          python -m esptool --chip esp32 merge_bin -o dist/ais-gateway-$VER-full.bin \
-            --flash_mode dio --flash_freq 40m --flash_size 4MB \
-            0x1000 $B/bootloader.bin 0x8000 $B/partitions.bin 0xe000 $BOOT_APP0 0x10000 $B/firmware.bin
-          # The app alone: for updates over WiFi (Settings > Firmware update, POST /ota, or espota)
-          cp $B/firmware.bin dist/ais-gateway-$VER-update.bin
+          mkdir -p dist
+          package() {  # env chip boot-offset flash-freq flash-size
+            B=.pio/build/$1
+            mkdir -p site/firmware/$1
+            cp $B/bootloader.bin $B/partitions.bin $BOOT_APP0 $B/firmware.bin site/firmware/$1/
+            # One file for esptool: write it at 0x0 on a fresh board
+            python -m esptool --chip $2 merge_bin -o dist/ais-gateway-$VER-$1-full.bin \
+              --flash_mode dio --flash_freq $4 --flash_size $5 \
+              $3 $B/bootloader.bin 0x8000 $B/partitions.bin 0xe000 $BOOT_APP0 0x10000 $B/firmware.bin
+            # The app alone: for updates over WiFi (Settings > Firmware update, POST /ota, or espota)
+            cp $B/firmware.bin dist/ais-gateway-$VER-$1-update.bin
+          }
+          package m5stack-atom esp32 0x1000 40m 4MB
+          package xiao-carrier esp32s3 0x0 80m 8MB
           sed "s/@VERSION@/$VER/" site/manifest.template.json > site/firmware/manifest.json
           rm site/manifest.template.json
           echo "VER=$VER" >> $GITHUB_ENV

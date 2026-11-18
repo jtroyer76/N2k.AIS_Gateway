@@ -30,23 +30,26 @@
 <main>
   <h1>AIS Gateway</h1>
   <p>Firmware that puts AIS from an NMEA 0183 receiver or transponder (RS485/RS422) onto the NMEA 2000 bus.
-     For the M5Stack Atom Lite with a CAN Unit and a Tail485. Version <b id="version">…</b>.</p>
+     For the M5Stack Atom Lite with a CAN Unit and a Tail485, or a Seeed XIAO ESP32-S3 on the CAN + isolated RS485
+     carrier board. Version <b id="version">…</b>.</p>
 
   <div class="card">
     <esp-web-install-button manifest="firmware/manifest.json">
-      <button slot="activate">Install on an Atom Lite</button>
+      <button slot="activate">Install</button>
       <span slot="unsupported">This browser can't install firmware. Use Chrome or Edge on a computer.</span>
       <span slot="not-allowed">Open this page over https to install.</span>
     </esp-web-install-button>
-    <p>Connect the Atom Lite to this computer by USB-C, click Install, and choose its serial port.
-       Install <b>before fitting the Tail485</b>, while the USB port can be reached.
+    <p>Connect the gateway to this computer by USB-C, click Install, and choose its serial port.
+       The installer finds the chip and installs the right firmware for the board.
+       On the Atom, install <b>before fitting the Tail485</b>, while the USB port can be reached.
        Erase the device on a first install. To update a gateway you've set up, don't erase: its settings are kept.</p>
     <p>After installing, "Logs &amp; Console" shows the serial log, including the line <code>Device password: …</code>.</p>
   </div>
 
   <h2>After installing</h2>
   <ol>
-    <li>The gateway starts its own open WiFi, <b>AIS-Gateway-XXXX</b>. Its LED blips purple twice every 5 seconds.</li>
+    <li>The gateway starts its own open WiFi, <b>AIS-Gateway-XXXX</b>. Its LED blips twice every 5 seconds
+        (purple on the Atom).</li>
     <li>Join it with your phone. The setup page usually opens by itself; if not, open <code>http://192.168.4.1</code>.</li>
     <li>Choose the boat's WiFi network (names are case-sensitive), enter its password, and check the AIS baud rate.
         Note the <b>device password</b> shown on the page, or set your own: it protects updates, the settings and the gateway's own WiFi.</li>

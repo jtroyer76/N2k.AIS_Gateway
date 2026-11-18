@@ -156,7 +156,7 @@ static void handleOtaChunk() {
       break;
     case RAW_WRITE:
       if (uploadStarted && !otaUploadWrite(raw.buf, raw.currentSize)) {
-        uploadError = "writing the firmware failed";
+        uploadError = otaUploadError() ? otaUploadError() : "writing the firmware failed";
         uploadStarted = false;
         otaUploadAbort();
       }

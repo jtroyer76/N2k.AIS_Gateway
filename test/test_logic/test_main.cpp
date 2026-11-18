@@ -11,6 +11,8 @@
 #include "RawRing.h"
 #include "BusHealth.h"
 #include "ButtonPolicy.h"
+#include "ConsoleCommand.h"
+#include "ImageCheck.h"
 
 void setUp() {}
 void tearDown() {}
@@ -320,8 +322,105 @@ void test_bus_unhealthy_when_not_running_or_closed() {
   TEST_ASSERT_FALSE(busHealthy(b));
 }
 
+//*****************************************************************************
+// Serial console commands (SPEC 7.4)
+
+static int feedAll(ConsoleLineReader &r, const char *s, std::string *last = nullptr) {
+  int lines = 0;
+  for (const char *p = s; *p; p++)
+    if (r.feed(*p)) {
+      lines++;
+      if (last) *last = r.line();
+    }
+  return lines;
+}
+
+void test_console_line_ends_at_cr_lf_or_crlf_once() {
+  ConsoleLineReader r;
+  std::string last;
+  TEST_ASSERT_EQUAL(1, feedAll(r, "help\r\n", &last));
+  TEST_ASSERT_EQUAL_STRING("help", last.c_str());
+  TEST_ASSERT_EQUAL(1, feedAll(r, "help\n", &last));
+  TEST_ASSERT_EQUAL(1, feedAll(r, "help\r", &last));
+  TEST_ASSERT_EQUAL(0, feedAll(r, "\r\n\n\r"));  // empty lines are not lines
+  TEST_ASSERT_EQUAL(0, feedAll(r, "hel"));       // no line end yet
+  TEST_ASSERT_EQUAL(1, feedAll(r, "p\n", &last));
+  TEST_ASSERT_EQUAL_STRING("help", last.c_str());
+}
+
+void test_console_too_long_line_dropped_whole() {
+  ConsoleLineReader r;
+  std::string longLine(CONSOLE_LINE_MAX + 5, 'x');
+  longLine += "reset settings\n";
+  std::string last = "unset";
+  TEST_ASSERT_EQUAL(1, feedAll(r, longLine.c_str(), &last));
+  TEST_ASSERT_TRUE(r.tooLong());
+  TEST_ASSERT_EQUAL_STRING("", last.c_str());
+  TEST_ASSERT_EQUAL(ConsoleCommand::None, parseConsoleCommand(last.c_str()));
+  // The next line is read normally.
+  TEST_ASSERT_EQUAL(1, feedAll(r, "help\n", &last));
+  TEST_ASSERT_FALSE(r.tooLong());
+  TEST_ASSERT_EQUAL_STRING("help", last.c_str());
+}
+
+void test_console_reset_settings_ignores_case_and_spacing() {
+  TEST_ASSERT_EQUAL(ConsoleCommand::ResetSettings, parseConsoleCommand("reset settings"));
+  TEST_ASSERT_EQUAL(ConsoleCommand::ResetSettings, parseConsoleCommand("  Reset   SETTINGS \t"));
+  TEST_ASSERT_EQUAL(ConsoleCommand::Help, parseConsoleCommand("HELP"));
+}
+
+void test_console_near_misses_do_not_reset() {
+  TEST_ASSERT_EQUAL(ConsoleCommand::Unknown, parseConsoleCommand("reset"));
+  TEST_ASSERT_EQUAL(ConsoleCommand::Unknown, parseConsoleCommand("resetsettings"));
+  TEST_ASSERT_EQUAL(ConsoleCommand::Unknown, parseConsoleCommand("reset settings now"));
+  TEST_ASSERT_EQUAL(ConsoleCommand::Unknown, parseConsoleCommand("x reset settings"));
+  TEST_ASSERT_EQUAL(ConsoleCommand::None, parseConsoleCommand("   "));
+  TEST_ASSERT_EQUAL(ConsoleCommand::None, parseConsoleCommand(""));
+}
+
+//*****************************************************************************
+// Firmware upload chip check (SPEC 7.5)
+
+// First 16 bytes of app images built by the m5stack-atom and xiao-carrier envs (1.2.0 + this
+// change): magic, segment count, SPI mode, speed/size, entry address, WP pin, SPI drive bytes,
+// then the chip ID at offset 12.
+static const uint8_t kEsp32Start[16] = {0xE9, 0x05, 0x02, 0x20, 0x2C, 0x2F, 0x08, 0x40,
+                                        0xEE, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+static const uint8_t kEsp32s3Start[16] = {0xE9, 0x05, 0x02, 0x3F, 0xE8, 0x6A, 0x37, 0x40,
+                                          0xEE, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00};
+
+void test_image_matching_chip_accepted() {
+  uint16_t chip = 0xFFFF;
+  TEST_ASSERT_EQUAL(ImageCheck::Ok, checkImageStart(kEsp32Start, 16, 0x0000, &chip));
+  TEST_ASSERT_EQUAL_HEX16(0x0000, chip);
+  TEST_ASSERT_EQUAL(ImageCheck::Ok, checkImageStart(kEsp32s3Start, 16, 0x0009, &chip));
+  TEST_ASSERT_EQUAL_HEX16(0x0009, chip);
+}
+
+void test_image_for_other_board_refused() {
+  uint16_t chip = 0xFFFF;
+  TEST_ASSERT_EQUAL(ImageCheck::WrongChip, checkImageStart(kEsp32s3Start, 16, 0x0000, &chip));
+  TEST_ASSERT_EQUAL_STRING("ESP32-S3", chipName(chip));
+  TEST_ASSERT_EQUAL(ImageCheck::WrongChip, checkImageStart(kEsp32Start, 16, 0x0009, &chip));
+  TEST_ASSERT_EQUAL_STRING("ESP32", chipName(chip));
+}
+
+void test_image_not_an_image_or_too_short() {
+  uint8_t junk[16] = {'<', 'h', 't', 'm', 'l', '>'};
+  TEST_ASSERT_EQUAL(ImageCheck::NotAnImage, checkImageStart(junk, 16, 0x0000, nullptr));
+  TEST_ASSERT_EQUAL(ImageCheck::TooShort, checkImageStart(kEsp32Start, IMAGE_HEADER_MIN - 1, 0x0000, nullptr));
+  TEST_ASSERT_EQUAL(ImageCheck::Ok, checkImageStart(kEsp32Start, IMAGE_HEADER_MIN, 0x0000, nullptr));
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
+  RUN_TEST(test_image_matching_chip_accepted);
+  RUN_TEST(test_image_for_other_board_refused);
+  RUN_TEST(test_image_not_an_image_or_too_short);
+  RUN_TEST(test_console_line_ends_at_cr_lf_or_crlf_once);
+  RUN_TEST(test_console_too_long_line_dropped_whole);
+  RUN_TEST(test_console_reset_settings_ignores_case_and_spacing);
+  RUN_TEST(test_console_near_misses_do_not_reset);
   RUN_TEST(test_led_boot_blue);
   RUN_TEST(test_led_green_flash_after_sentence);
   RUN_TEST(test_led_healthy_idle_is_off);

@@ -6,6 +6,7 @@
 #include <esp_ota_ops.h>
 
 #include "Config.h"
+#include "ImageCheck.h"
 #include "Led.h"
 #include "Log.h"
 #include "RollbackPolicy.h"
@@ -84,7 +85,42 @@ bool otaActive() { return active; }
 void otaWatchdogPause() { pauseWdt(); }
 void otaWatchdogResume() { resumeWdt(); }
 
+// The first bytes of the upload, collected until the image header can be checked (ImageCheck.h).
+static uint8_t imageHead[IMAGE_HEADER_MIN];
+static size_t imageHeadLen = 0;
+static const char *uploadError = nullptr;
+static char uploadErrorText[96];
+
+const char *otaUploadError() { return uploadError; }
+
+// False if the header shows the image can't run here. Bytes already passed to Update only reach
+// the inactive slot, and an aborted update is never made bootable.
+static bool checkHead(const uint8_t *data, size_t len) {
+  if (imageHeadLen >= IMAGE_HEADER_MIN) return true;  // already checked
+  size_t take = IMAGE_HEADER_MIN - imageHeadLen;
+  if (take > len) take = len;
+  memcpy(imageHead + imageHeadLen, data, take);
+  imageHeadLen += take;
+  if (imageHeadLen < IMAGE_HEADER_MIN) return true;  // wait for more
+
+  uint16_t chip = 0;
+  switch (checkImageStart(imageHead, imageHeadLen, CONFIG_IDF_FIRMWARE_CHIP_ID, &chip)) {
+    case ImageCheck::Ok: return true;
+    case ImageCheck::TooShort: return true;  // not reached: the header is complete here
+    case ImageCheck::NotAnImage: uploadError = "the file is not a firmware image"; break;
+    case ImageCheck::WrongChip:
+      snprintf(uploadErrorText, sizeof(uploadErrorText), "the firmware is for %s, this gateway is %s (%s)",
+               chipName(chip), chipName(CONFIG_IDF_FIRMWARE_CHIP_ID), BOARD_NAME);
+      uploadError = uploadErrorText;
+      break;
+  }
+  logf(LogLevel::Error, "OTA: web upload refused: %s", uploadError);
+  return false;
+}
+
 bool otaUploadBegin(size_t size) {
+  imageHeadLen = 0;
+  uploadError = nullptr;
   if (!Update.begin(size)) {
     logf(LogLevel::Error, "OTA: web upload refused: %s", Update.errorString());
     return false;
@@ -97,6 +133,7 @@ bool otaUploadBegin(size_t size) {
 }
 
 bool otaUploadWrite(uint8_t *data, size_t len) {
+  if (!checkHead(data, len)) return false;
   if (Update.write(data, len) == len) return true;
   logf(LogLevel::Error, "OTA: web upload write failed: %s", Update.errorString());
   return false;
@@ -114,9 +151,10 @@ bool otaUploadEnd() {
   return true;
 }
 
+// The watchdog stays paused: the web server still reads and drops the rest of the body, which
+// blocks the loop for as long as the upload takes. It resumes the watchdog when the request ends.
 void otaUploadAbort() {
   Update.abort();
   logf(LogLevel::Error, "OTA: web upload aborted");
   active = false;
-  resumeWdt();
 }
