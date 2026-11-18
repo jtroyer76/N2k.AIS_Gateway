@@ -22,6 +22,10 @@ static MyAisDecoder decoder(
     [](const char *line) { logf(LogLevel::Warn, "AIS: %s", line); });
 
 void aisBegin() {
+#ifdef RS485_DE_PIN
+  pinMode(RS485_DE_PIN, OUTPUT);  // receive only: keep the RS485 driver off
+  digitalWrite(RS485_DE_PIN, LOW);
+#endif
   Serial1.setRxBufferSize(SERIAL_RX_BUFFER);  // before begin()
   Serial1.begin(settings().aisBaud, SERIAL_8N1, RS485_RX_PIN, RS485_TX_PIN);
   // SetMessageStream + Open, not Begin(): Begin() calls begin() again without our pins.

@@ -57,7 +57,7 @@ void n2kBegin() {
                                  10,                         // product code
                                  "AIS Gateway",              // model ID
                                  FW_VERSION,                 // software version
-                                 "M5 Atom + CAN + Tail485"); // model version
+                                 BOARD_NAME);                // model version (Config.h)
   NMEA2000.SetDeviceInformation(id,
                                 135,    // function: NMEA 0183 gateway
                                 25,     // class: inter/intranetwork device

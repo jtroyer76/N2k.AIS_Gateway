@@ -22,6 +22,7 @@
 #include "AisInput.h"
 #include "Button.h"
 #include "CanStatus.h"
+#include "Config.h"
 #include "Led.h"
 #include "Log.h"
 #include "N2kNode.h"
@@ -36,7 +37,7 @@
 void setup() {
   Serial.begin(115200);
   ledBegin();
-  logf(LogLevel::Info, "AIS Gateway %s starting, reset reason: %s", FW_VERSION, resetReason());
+  logf(LogLevel::Info, "AIS Gateway %s (%s) starting, reset reason: %s", FW_VERSION, BOARD_NAME, resetReason());
 
   settingsBegin();  // WiFi, device password and AIS baud, used by the modules below
 

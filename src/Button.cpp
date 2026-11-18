@@ -8,6 +8,7 @@
 #include "Log.h"
 #include "Settings.h"
 
+#ifdef BUTTON_PIN
 static const uint32_t kPollMs = 20;
 
 static ButtonPolicy policy;
@@ -27,3 +28,8 @@ void buttonLoop(uint32_t now) {
   Serial.flush();
   ESP.restart();
 }
+#else
+// Board without a usable button (Config.h): nothing to poll.
+void buttonBegin() {}
+void buttonLoop(uint32_t) {}
+#endif
