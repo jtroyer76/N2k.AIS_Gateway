@@ -23,6 +23,7 @@
 #include "Button.h"
 #include "CanStatus.h"
 #include "Config.h"
+#include "Console.h"
 #include "Led.h"
 #include "Log.h"
 #include "N2kNode.h"
@@ -38,6 +39,7 @@ void setup() {
   Serial.begin(115200);
   ledBegin();
   logf(LogLevel::Info, "AIS Gateway %s (%s) starting, reset reason: %s", FW_VERSION, BOARD_NAME, resetReason());
+  logf(LogLevel::Info, "Serial console: type \"help\" for commands");
 
   settingsBegin();  // WiFi, device password and AIS baud, used by the modules below
 
@@ -61,6 +63,7 @@ void loop() {
   otaLoop(now, n2kHealthy());
   webLoop(now);
   buttonLoop(now);
+  consoleLoop();
 
   LedInputs led = {};
   led.now = now;

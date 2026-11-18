@@ -11,6 +11,7 @@
 #include "RawRing.h"
 #include "BusHealth.h"
 #include "ButtonPolicy.h"
+#include "ConsoleCommand.h"
 
 void setUp() {}
 void tearDown() {}
@@ -320,8 +321,68 @@ void test_bus_unhealthy_when_not_running_or_closed() {
   TEST_ASSERT_FALSE(busHealthy(b));
 }
 
+//*****************************************************************************
+// Serial console commands (SPEC 7.4)
+
+static int feedAll(ConsoleLineReader &r, const char *s, std::string *last = nullptr) {
+  int lines = 0;
+  for (const char *p = s; *p; p++)
+    if (r.feed(*p)) {
+      lines++;
+      if (last) *last = r.line();
+    }
+  return lines;
+}
+
+void test_console_line_ends_at_cr_lf_or_crlf_once() {
+  ConsoleLineReader r;
+  std::string last;
+  TEST_ASSERT_EQUAL(1, feedAll(r, "help\r\n", &last));
+  TEST_ASSERT_EQUAL_STRING("help", last.c_str());
+  TEST_ASSERT_EQUAL(1, feedAll(r, "help\n", &last));
+  TEST_ASSERT_EQUAL(1, feedAll(r, "help\r", &last));
+  TEST_ASSERT_EQUAL(0, feedAll(r, "\r\n\n\r"));  // empty lines are not lines
+  TEST_ASSERT_EQUAL(0, feedAll(r, "hel"));       // no line end yet
+  TEST_ASSERT_EQUAL(1, feedAll(r, "p\n", &last));
+  TEST_ASSERT_EQUAL_STRING("help", last.c_str());
+}
+
+void test_console_too_long_line_dropped_whole() {
+  ConsoleLineReader r;
+  std::string longLine(CONSOLE_LINE_MAX + 5, 'x');
+  longLine += "reset settings\n";
+  std::string last = "unset";
+  TEST_ASSERT_EQUAL(1, feedAll(r, longLine.c_str(), &last));
+  TEST_ASSERT_TRUE(r.tooLong());
+  TEST_ASSERT_EQUAL_STRING("", last.c_str());
+  TEST_ASSERT_EQUAL(ConsoleCommand::None, parseConsoleCommand(last.c_str()));
+  // The next line is read normally.
+  TEST_ASSERT_EQUAL(1, feedAll(r, "help\n", &last));
+  TEST_ASSERT_FALSE(r.tooLong());
+  TEST_ASSERT_EQUAL_STRING("help", last.c_str());
+}
+
+void test_console_reset_settings_ignores_case_and_spacing() {
+  TEST_ASSERT_EQUAL(ConsoleCommand::ResetSettings, parseConsoleCommand("reset settings"));
+  TEST_ASSERT_EQUAL(ConsoleCommand::ResetSettings, parseConsoleCommand("  Reset   SETTINGS \t"));
+  TEST_ASSERT_EQUAL(ConsoleCommand::Help, parseConsoleCommand("HELP"));
+}
+
+void test_console_near_misses_do_not_reset() {
+  TEST_ASSERT_EQUAL(ConsoleCommand::Unknown, parseConsoleCommand("reset"));
+  TEST_ASSERT_EQUAL(ConsoleCommand::Unknown, parseConsoleCommand("resetsettings"));
+  TEST_ASSERT_EQUAL(ConsoleCommand::Unknown, parseConsoleCommand("reset settings now"));
+  TEST_ASSERT_EQUAL(ConsoleCommand::Unknown, parseConsoleCommand("x reset settings"));
+  TEST_ASSERT_EQUAL(ConsoleCommand::None, parseConsoleCommand("   "));
+  TEST_ASSERT_EQUAL(ConsoleCommand::None, parseConsoleCommand(""));
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
+  RUN_TEST(test_console_line_ends_at_cr_lf_or_crlf_once);
+  RUN_TEST(test_console_too_long_line_dropped_whole);
+  RUN_TEST(test_console_reset_settings_ignores_case_and_spacing);
+  RUN_TEST(test_console_near_misses_do_not_reset);
   RUN_TEST(test_led_boot_blue);
   RUN_TEST(test_led_green_flash_after_sentence);
   RUN_TEST(test_led_healthy_idle_is_off);

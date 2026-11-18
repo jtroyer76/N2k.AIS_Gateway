@@ -4,9 +4,7 @@
 
 #include "ButtonPolicy.h"
 #include "Config.h"
-#include "Led.h"
-#include "Log.h"
-#include "Settings.h"
+#include "Console.h"
 
 #ifdef BUTTON_PIN
 static const uint32_t kPollMs = 20;
@@ -21,12 +19,9 @@ void buttonLoop(uint32_t now) {
   lastPoll = now;
   if (!policy.step(now, digitalRead(BUTTON_PIN) == LOW)) return;
 
-  logf(LogLevel::Warn, "Button: held %lu s, clearing settings and restarting into setup",
-       (unsigned long)(RESET_HOLD_MS / 1000));
-  settingsClear();
-  ledShowNow(LedColor::Purple);
-  Serial.flush();
-  ESP.restart();
+  char source[32];
+  snprintf(source, sizeof(source), "Button: held %lu s", (unsigned long)(RESET_HOLD_MS / 1000));
+  resetSettingsAndRestart(source);
 }
 #else
 // Board without a usable button (Config.h): nothing to poll.
